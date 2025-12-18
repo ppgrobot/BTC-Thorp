@@ -1,0 +1,110 @@
+version: '3.8'
+
+services:
+  # Local DynamoDB for testing
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: dynamodb-local
+    ports:
+      - "8000:8000"
+    command: "-jar DynamoDBLocal.jar -sharedDb -dbPath /data"
+    volumes:
+      - dynamodb-data:/data
+
+  # BTC Price Collector
+  btc-price-collector:
+    build:
+      context: ./btc
+      dockerfile: Dockerfile
+    container_name: btc-price-collector
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test}
+      - AWS_DEFAULT_REGION=us-east-1
+      - DYNAMODB_ENDPOINT=http://dynamodb-local:8000
+    depends_on:
+      - dynamodb-local
+    command: ["btc_price_collector.lambda_handler"]
+
+  # BTC Trading Bot
+  btc-trading-bot:
+    build:
+      context: ./btc
+      dockerfile: Dockerfile
+    container_name: btc-trading-bot
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test}
+      - AWS_DEFAULT_REGION=us-east-1
+      - DYNAMODB_ENDPOINT=http://dynamodb-local:8000
+      - KALSHI_KEY_ID=${KALSHI_KEY_ID}
+      - KALSHI_PRIVATE_KEY=${KALSHI_PRIVATE_KEY}
+    depends_on:
+      - dynamodb-local
+    command: ["btc_lambda_function.lambda_handler"]
+
+  # ETH Price Collector
+  eth-price-collector:
+    build:
+      context: ./eth
+      dockerfile: Dockerfile
+    container_name: eth-price-collector
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test}
+      - AWS_DEFAULT_REGION=us-east-1
+      - DYNAMODB_ENDPOINT=http://dynamodb-local:8000
+    depends_on:
+      - dynamodb-local
+    command: ["eth_price_collector.lambda_handler"]
+
+  # ETH Volatility API
+  eth-volatility-api:
+    build:
+      context: ./eth
+      dockerfile: Dockerfile
+    container_name: eth-volatility-api
+    ports:
+      - "9000:8080"
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test}
+      - AWS_DEFAULT_REGION=us-east-1
+      - DYNAMODB_ENDPOINT=http://dynamodb-local:8000
+      - API_BEARER_TOKEN=${API_BEARER_TOKEN:-test-token}
+    depends_on:
+      - dynamodb-local
+    command: ["eth_volatility_api.lambda_handler"]
+
+  # Weather Trading Bot
+  weather-bot:
+    build:
+      context: ./weather
+      dockerfile: Dockerfile
+    container_name: weather-bot
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test}
+      - AWS_DEFAULT_REGION=us-east-1
+      - DYNAMODB_ENDPOINT=http://dynamodb-local:8000
+      - KALSHI_KEY_ID=${KALSHI_KEY_ID}
+      - KALSHI_PRIVATE_KEY=${KALSHI_PRIVATE_KEY}
+    depends_on:
+      - dynamodb-local
+
+  # Price History Cleanup
+  cleanup:
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile
+    container_name: cleanup
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test}
+      - AWS_DEFAULT_REGION=us-east-1
+      - DYNAMODB_ENDPOINT=http://dynamodb-local:8000
+    depends_on:
+      - dynamodb-local
+
+volumes:
+  dynamodb-data:

@@ -1,0 +1,84 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Lambda deployment packages
+*.zip
+
+# AWS credentials
+.aws/
+credentials
+
+# Local development
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Response files
+response.json
+output.json
+
+# API tokens
+.api_token
+*/.eth_api_token
+*/.btc_api_token
+
+# Lambda package dependencies (installed via pip) - both btc and weather
+*/lambda_package/cffi/
+*/lambda_package/cffi-*/
+*/lambda_package/cryptography/
+*/lambda_package/cryptography-*/
+*/lambda_package/pycparser/
+*/lambda_package/pycparser-*/
+*/lambda_package/_cffi_backend*.so
+*/lambda_package/requests/
+*/lambda_package/requests-*/
+*/lambda_package/urllib3/
+*/lambda_package/urllib3-*/
+*/lambda_package/certifi/
+*/lambda_package/certifi-*/
+*/lambda_package/charset_normalizer/
+*/lambda_package/charset_normalizer-*/
+*/lambda_package/idna/
+*/lambda_package/idna-*/
+*/lambda_package/python/
+*/lambda_package/bin/
+
+# Docker
+docker-compose.override.yml
+.docker/
+
+# Terraform state (if using)
+*.tfstate
+*.tfstate.*
+.terraform/

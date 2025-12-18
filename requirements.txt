@@ -1,0 +1,6 @@
+requests==2.31.0
+python-dotenv==1.0.0
+cryptography==42.0.0
+websockets==12.0
+yfinance==0.2.39
+pandas==2.2.0

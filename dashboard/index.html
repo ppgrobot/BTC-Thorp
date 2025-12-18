@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BTC Trading Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: #f7931a;
+            margin-bottom: 30px;
+            font-size: 2rem;
+        }
+
+        h1 span {
+            color: #e0e0e0;
+            font-weight: normal;
+        }
+
+        /* Header Info Grid */
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .info-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .info-card .label {
+            font-size: 0.85rem;
+            color: #888;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .info-card .value {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #f7931a;
+        }
+
+        .info-card .value.green { color: #4caf50; }
+        .info-card .value.red { color: #f44336; }
+        .info-card .value.blue { color: #627eea; }
+
+        .live-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #4caf50;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Refresh Button */
+        .refresh-btn {
+            display: block;
+            margin: 0 auto 30px;
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #f7931a 0%, #e67e22 100%);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .refresh-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(247, 147, 26, 0.4);
+        }
+
+        .refresh-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #fff;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Charts Section */
+        .charts-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        @media (max-width: 900px) {
+            .charts-section {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .chart-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .chart-card h2 {
+            font-size: 1.1rem;
+            margin-bottom: 15px;
+            color: #f7931a;
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 200px !important;
+        }
+
+        /* Strikes Table */
+        .table-section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            overflow-x: auto;
+        }
+
+        .table-section h2 {
+            font-size: 1.2rem;
+            margin-bottom: 15px;
+            color: #f7931a;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        th {
+            background: rgba(247, 147, 26, 0.2);
+            color: #f7931a;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            letter-spacing: 1px;
+        }
+
+        tr:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .positive { color: #4caf50; }
+        .negative { color: #f44336; }
+
+        .edge-high {
+            background: rgba(76, 175, 80, 0.2);
+            color: #4caf50;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .control-group label {
+            color: #888;
+            font-size: 0.9rem;
+        }
+
+        .control-group input, .control-group select {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            padding: 8px 12px;
+            color: #e0e0e0;
+            font-size: 1rem;
+        }
+
+        .control-group input:focus, .control-group select:focus {
+            outline: none;
+            border-color: #f7931a;
+        }
+
+        /* Status Messages */
+        .status {
+            text-align: center;
+            padding: 20px;
+            color: #888;
+            font-style: italic;
+        }
+
+        .status.error {
+            color: #f44336;
+        }
+
+        /* Trade Log */
+        .trade-log {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .trade-log h2 {
+            font-size: 1.2rem;
+            margin-bottom: 15px;
+            color: #f7931a;
+        }
+
+        .trade-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .trade-item:last-child {
+            border-bottom: none;
+        }
+
+        /* Edge coloring in table */
+        td.positive, .positive {
+            color: #4caf50;
+            font-weight: 600;
+        }
+
+        td.negative, .negative {
+            color: #f44336;
+        }
+
+        .pending {
+            color: #ff9800;
+        }
+
+        /* Volatility Stop Banner */
+        .vol-stop-banner {
+            background: linear-gradient(135deg, #f44336 0%, #c62828 100%);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .vol-stop-banner.active {
+            display: block;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 0.85rem;
+        }
+
+        .footer a {
+            color: #f7931a;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1><span class="live-indicator"></span>BTC Trading <span>Dashboard</span></h1>
+
+        <div class="vol-stop-banner" id="volStopBanner">
+            ⚠️ VOLATILITY STOP ACTIVE - Trading halted due to high volatility
+        </div>
+
+        <div class="info-grid">
+            <div class="info-card">
+                <div class="label">BTC Price</div>
+                <div class="value" id="btcPrice">--</div>
+            </div>
+            <div class="info-card">
+                <div class="label">Minutes to Settlement</div>
+                <div class="value blue" id="minsToSettle">--</div>
+            </div>
+            <div class="info-card">
+                <div class="label">15m Volatility</div>
+                <div class="value" id="volatility15m">--</div>
+            </div>
+            <div class="info-card">
+                <div class="label">Trading Status</div>
+                <div class="value green" id="tradingStatus">--</div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label>Bankroll ($):</label>
+                <input type="number" id="bankroll" value="100" min="10" step="10">
+            </div>
+            <div class="control-group">
+                <label>Kelly Fraction:</label>
+                <select id="kellyFraction">
+                    <option value="0.1">10% (Conservative)</option>
+                    <option value="0.25" selected>25% (Quarter Kelly)</option>
+                    <option value="0.5">50% (Half Kelly)</option>
+                    <option value="1.0">100% (Full Kelly)</option>
+                </select>
+            </div>
+        </div>
+
+        <button class="refresh-btn" id="refreshBtn" onclick="refreshData()">
+            Refresh Data
+        </button>
+
+        <div class="charts-section">
+            <div class="chart-card">
+                <h2>Volatility by Window</h2>
+                <canvas id="volChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <h2>Price History (Last 60 min)</h2>
+                <canvas id="priceChart"></canvas>
+            </div>
+        </div>
+
+        <div class="table-section">
+            <h2>Available Strikes (NO Contracts)</h2>
+            <table id="strikesTable">
+                <thead>
+                    <tr>
+                        <th>Strike</th>
+                        <th>Distance (bps)</th>
+                        <th>Fair Price</th>
+                        <th>Market Ask</th>
+                        <th>Edge %</th>
+                        <th>Kelly Bet</th>
+                    </tr>
+                </thead>
+                <tbody id="strikesBody">
+                    <tr><td colspan="6" class="status">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="trade-log">
+            <h2>Recent Trades</h2>
+            <div id="tradeLog">
+                <div class="status">Loading trade history...</div>
+            </div>
+        </div>
+
+        <div class="footer">
+            Auto-refreshes every 30 seconds |
+            <a href="https://kalshi.com" target="_blank">Kalshi</a> |
+            Data from DynamoDB
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const CONFIG = {
+            // API Gateway endpoint for real data
+            apiBase: 'https://hj0huxe72j.execute-api.us-east-2.amazonaws.com',
+            refreshInterval: 30000,  // 30 seconds
+        };
+
+        // Global state
+        let volChart = null;
+        let priceChart = null;
+        let cachedData = null;
+
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            refreshData();
+            setInterval(refreshData, CONFIG.refreshInterval);
+        });
+
+        // Initialize Chart.js charts
+        function initCharts() {
+            const volCtx = document.getElementById('volChart').getContext('2d');
+            const priceCtx = document.getElementById('priceChart').getContext('2d');
+
+            // Volatility Chart
+            volChart = new Chart(volCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['15m', '30m', '60m', '90m', '120m'],
+                    datasets: [{
+                        label: 'Volatility %',
+                        data: [0, 0, 0, 0, 0],
+                        backgroundColor: [
+                            '#4caf50',
+                            'rgba(247, 147, 26, 0.7)',
+                            'rgba(247, 147, 26, 0.7)',
+                            'rgba(247, 147, 26, 0.7)',
+                            'rgba(247, 147, 26, 0.7)'
+                        ],
+                        borderColor: '#f7931a',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(255,255,255,0.1)' },
+                            ticks: { color: '#888' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#888' }
+                        }
+                    }
+                }
+            });
+
+            // Price Chart
+            priceChart = new Chart(priceCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'BTC Price',
+                        data: [],
+                        borderColor: '#f7931a',
+                        backgroundColor: 'rgba(247, 147, 26, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: 'rgba(255,255,255,0.1)' },
+                            ticks: {
+                                color: '#888',
+                                callback: (v) => '$' + v.toLocaleString()
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: {
+                                color: '#888',
+                                maxTicksLimit: 6
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Refresh all data
+        async function refreshData() {
+            const btn = document.getElementById('refreshBtn');
+            btn.innerHTML = '<span class="spinner"></span>Refreshing...';
+            btn.disabled = true;
+
+            try {
+                if (CONFIG.apiBase) {
+                    // Fetch all data from API in one call
+                    const response = await fetch(`${CONFIG.apiBase}/dashboard/all`);
+                    cachedData = await response.json();
+                    updateFromApiData(cachedData);
+                } else {
+                    // Use mock data for local testing
+                    await Promise.all([
+                        fetchVolatilityDataMock(),
+                        fetchPriceDataMock(),
+                        fetchTradeLogMock()
+                    ]);
+                }
+
+                updateStrikesTable();
+                updateTradingStatus();
+            } catch (error) {
+                console.error('Error refreshing data:', error);
+            } finally {
+                btn.innerHTML = 'Refresh Data';
+                btn.disabled = false;
+            }
+        }
+
+        // Update UI from API response
+        function updateFromApiData(data) {
+            // Update BTC price
+            if (data.btc_price) {
+                document.getElementById('btcPrice').textContent = '$' + Math.round(data.btc_price).toLocaleString();
+            }
+
+            // Update minutes to settlement
+            if (data.minutes_to_settlement !== undefined) {
+                document.getElementById('minsToSettle').textContent = data.minutes_to_settlement + ' min';
+            }
+
+            // Update volatility
+            if (data.volatility && data.volatility['15m']) {
+                const vol15m = data.volatility['15m'].std;
+                document.getElementById('volatility15m').textContent = vol15m.toFixed(2) + '%';
+                document.getElementById('volatility15m').className = 'value ' + (vol15m >= 11 ? 'red' : 'green');
+
+                // Check volatility stop
+                const banner = document.getElementById('volStopBanner');
+                if (vol15m >= 11) {
+                    banner.classList.add('active');
+                } else {
+                    banner.classList.remove('active');
+                }
+
+                // Update volatility chart
+                volChart.data.datasets[0].data = [
+                    data.volatility['15m']?.std || 0,
+                    data.volatility['30m']?.std || 0,
+                    data.volatility['60m']?.std || 0,
+                    data.volatility['90m']?.std || 0,
+                    data.volatility['120m']?.std || 0
+                ];
+                volChart.update();
+            }
+
+            // Update price history chart
+            if (data.price_history && data.price_history.length > 0) {
+                const labels = data.price_history.map(p => {
+                    const time = new Date(p.timestamp);
+                    return time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                });
+                const prices = data.price_history.map(p => p.price);
+
+                priceChart.data.labels = labels;
+                priceChart.data.datasets[0].data = prices;
+                priceChart.update();
+            }
+
+            // Update trade log
+            if (data.trades) {
+                const logDiv = document.getElementById('tradeLog');
+                if (data.trades.length === 0) {
+                    logDiv.innerHTML = '<div class="status">No trades yet today</div>';
+                } else {
+                    logDiv.innerHTML = data.trades.map(t => {
+                        // Format timestamp nicely
+                        const ts = t.timestamp ? new Date(t.timestamp) : null;
+                        const timeStr = ts ? ts.toLocaleTimeString('en-US', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: true
+                        }) : '--';
+
+                        // Format strike price
+                        const strike = t.strike ? '$' + t.strike.toLocaleString() : '--';
+
+                        // Status indicator
+                        const statusClass = t.status === 'resting' ? 'pending' :
+                                           t.status === 'filled' ? 'positive' : '';
+
+                        return `
+                            <div class="trade-item">
+                                <span>${timeStr}</span>
+                                <span>${strike} ${t.side || 'NO'}</span>
+                                <span>${t.contracts || 0} @ ${t.price || 0}¢ = $${(t.total_cost || 0).toFixed(2)}</span>
+                                <span class="${statusClass}">
+                                    ${t.status === 'resting' ? '⏳ Pending' :
+                                      t.status === 'filled' ? '✓ Filled' : t.status || '--'}
+                                </span>
+                            </div>
+                        `;
+                    }).join('');
+                }
+            }
+        }
+
+        // Mock data functions for local testing
+        async function fetchVolatilityDataMock() {
+            const mockData = {
+                '15m': { std: 0.08 + Math.random() * 0.1, samples: 15 },
+                '30m': { std: 0.10 + Math.random() * 0.1, samples: 30 },
+                '60m': { std: 0.12 + Math.random() * 0.1, samples: 60 },
+                '90m': { std: 0.14 + Math.random() * 0.1, samples: 90 },
+                '120m': { std: 0.15 + Math.random() * 0.1, samples: 120 }
+            };
+
+            const vol15m = mockData['15m'].std;
+            document.getElementById('volatility15m').textContent = vol15m.toFixed(2) + '%';
+            document.getElementById('volatility15m').className = 'value ' + (vol15m >= 11 ? 'red' : 'green');
+
+            const banner = document.getElementById('volStopBanner');
+            if (vol15m >= 11) {
+                banner.classList.add('active');
+            } else {
+                banner.classList.remove('active');
+            }
+
+            volChart.data.datasets[0].data = [
+                mockData['15m'].std,
+                mockData['30m'].std,
+                mockData['60m'].std,
+                mockData['90m'].std,
+                mockData['120m'].std
+            ];
+            volChart.update();
+
+            return mockData;
+        }
+
+        async function fetchPriceDataMock() {
+            const basePrice = 104000 + (Math.random() - 0.5) * 2000;
+            document.getElementById('btcPrice').textContent = '$' + basePrice.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+            const now = new Date();
+            const labels = [];
+            const prices = [];
+
+            for (let i = 60; i >= 0; i--) {
+                const time = new Date(now - i * 60000);
+                labels.push(time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
+                prices.push(basePrice + (Math.random() - 0.5) * 500 - (60 - i) * 5);
+            }
+
+            priceChart.data.labels = labels;
+            priceChart.data.datasets[0].data = prices;
+            priceChart.update();
+
+            const mins = 60 - now.getMinutes();
+            document.getElementById('minsToSettle').textContent = mins + ' min';
+
+            return { price: basePrice, history: prices };
+        }
+
+        async function fetchTradeLogMock() {
+            const mockTrades = [
+                { time: '2025-12-17 21:45', strike: '$105,000', side: 'NO', contracts: 3, price: 92, pnl: '+$24' },
+                { time: '2025-12-17 20:45', strike: '$104,500', side: 'NO', contracts: 2, price: 94, pnl: '+$12' },
+                { time: '2025-12-17 19:45', strike: '$104,000', side: 'NO', contracts: 5, price: 91, pnl: '+$45' },
+            ];
+
+            const logDiv = document.getElementById('tradeLog');
+            if (mockTrades.length === 0) {
+                logDiv.innerHTML = '<div class="status">No recent trades</div>';
+                return;
+            }
+
+            logDiv.innerHTML = mockTrades.map(t => `
+                <div class="trade-item">
+                    <span>${t.time}</span>
+                    <span>${t.strike} ${t.side}</span>
+                    <span>${t.contracts} @ ${t.price}¢</span>
+                    <span class="${t.pnl.startsWith('+') ? 'positive' : 'negative'}">${t.pnl}</span>
+                </div>
+            `).join('');
+
+            return mockTrades;
+        }
+
+        // Calculate and update strikes table from API data
+        function updateStrikesTable() {
+            const bankroll = parseFloat(document.getElementById('bankroll').value) || 100;
+            const kellyFrac = parseFloat(document.getElementById('kellyFraction').value) || 0.25;
+
+            // Use cached API data if available
+            if (!cachedData || !cachedData.strikes) {
+                const tbody = document.getElementById('strikesBody');
+                tbody.innerHTML = '<tr><td colspan="6" class="status">Waiting for data...</td></tr>';
+                return;
+            }
+
+            const strikes = cachedData.strikes;
+
+            // Render table with real Kalshi data
+            const tbody = document.getElementById('strikesBody');
+
+            if (strikes.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="status">No strikes available</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = strikes.map(s => {
+                // Apply user's Kelly fraction and bankroll to the API-calculated bet
+                // API returns bet for $100 bankroll at 100% Kelly
+                const adjustedBet = (s.kelly_bet || 0) * kellyFrac * (bankroll / 100);
+                const edgeClass = s.edge > 0 ? 'positive' : (s.edge < 0 ? 'negative' : '');
+                const edgeDisplay = s.edge > 0 ? '+' + s.edge + '%' : s.edge + '%';
+
+                return `
+                    <tr>
+                        <td>$${s.strike.toLocaleString()}</td>
+                        <td>${s.distance_bps} bps</td>
+                        <td class="positive">${s.fair_no_price}¢</td>
+                        <td>${s.no_ask > 0 ? s.no_ask + '¢' : '--'}</td>
+                        <td class="${edgeClass}">${s.no_ask > 0 ? edgeDisplay : '--'}</td>
+                        <td>${adjustedBet > 0.01 ? '$' + adjustedBet.toFixed(2) : 'No bet'}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // Update trading status
+        function updateTradingStatus() {
+            const vol = parseFloat(document.getElementById('volatility15m').textContent) || 0;
+            const statusEl = document.getElementById('tradingStatus');
+
+            if (vol >= 11) {
+                statusEl.textContent = 'STOPPED';
+                statusEl.className = 'value red';
+            } else {
+                statusEl.textContent = 'ACTIVE';
+                statusEl.className = 'value green';
+            }
+        }
+
+        // Normal CDF approximation
+        function normalCDF(x) {
+            const a1 =  0.254829592;
+            const a2 = -0.284496736;
+            const a3 =  1.421413741;
+            const a4 = -1.453152027;
+            const a5 =  1.061405429;
+            const p  =  0.3275911;
+
+            const sign = x < 0 ? -1 : 1;
+            x = Math.abs(x) / Math.sqrt(2);
+
+            const t = 1.0 / (1.0 + p * x);
+            const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+
+            return 0.5 * (1.0 + sign * y);
+        }
+
+        // Recalculate on input change
+        document.getElementById('bankroll').addEventListener('change', updateStrikesTable);
+        document.getElementById('kellyFraction').addEventListener('change', updateStrikesTable);
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</body>
+</html>
