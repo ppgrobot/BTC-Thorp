@@ -621,25 +621,30 @@ def lambda_handler(event, context):
         # =========================================================================
         print("\n=== Step 1: Account Balance ===")
 
-        # Use fixed bankroll for Kelly sizing (not actual account balance)
-        # This limits risk exposure regardless of account size
-        FIXED_BANKROLL = 100.00
-        bankroll = FIXED_BANKROLL
-        print(f"Using fixed bankroll: ${bankroll:.2f}")
+        # Get actual account balance for Kelly sizing
+        bankroll = get_account_balance()
+        if bankroll is None:
+            return {
+                'statusCode': 500,
+                'body': json.dumps({
+                    'status': 'balance_error',
+                    'message': 'Could not fetch account balance from Kalshi'
+                })
+            }
 
-        # Still check actual balance to ensure we can trade
-        actual_balance = get_account_balance()
-        if actual_balance is not None:
-            print(f"Actual account balance: ${actual_balance:.2f}")
-            if actual_balance < 1.00:
-                return {
-                    'statusCode': 200,
-                    'body': json.dumps({
-                        'status': 'insufficient_funds',
-                        'balance': actual_balance,
-                        'message': 'Account balance too low to trade'
-                    })
-                }
+        print(f"Using account balance for Kelly: ${bankroll:.2f}")
+
+        # Minimum balance check
+        MIN_BALANCE = 1.00
+        if bankroll < MIN_BALANCE:
+            return {
+                'statusCode': 200,
+                'body': json.dumps({
+                    'status': 'insufficient_funds',
+                    'balance': bankroll,
+                    'message': f'Account balance ${bankroll:.2f} too low to trade (min: ${MIN_BALANCE:.2f})'
+                })
+            }
 
         # =========================================================================
         # Step 2: Get volatility data (dynamic window based on time to settlement)
