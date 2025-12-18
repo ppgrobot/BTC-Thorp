@@ -43,7 +43,7 @@ MIN_BPS_ABOVE = 20  # 0.20%
 MIN_EDGE_PCT = 3  # Only trade if we see 3%+ edge
 
 # Maximum fraction of bankroll to risk per trade (Kelly scaling)
-MAX_KELLY_FRACTION = 0.20  # 20% Kelly for safety
+MAX_KELLY_FRACTION = 0.25  # Quarter Kelly for safety
 
 # Maximum contracts per trade (no cap - let Kelly size it)
 MAX_CONTRACTS = 999
