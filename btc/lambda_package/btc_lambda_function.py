@@ -52,6 +52,11 @@ MAX_CONTRACTS = 999
 MIN_NO_PRICE = 50   # Don't buy NO below 50¢ (too risky)
 MAX_NO_PRICE = 99   # Don't buy NO above 99¢ (no profit)
 
+# Minimum profit percentage required to trade
+# Profit % = (100 - price) / price * 100
+# At 9%, we skip trades where price > 91¢ (bad risk/reward)
+MIN_PROFIT_PCT = 9
+
 # Maximum volatility threshold - halt trading if 15m volatility exceeds this
 # High volatility makes our normal distribution model unreliable
 MAX_VOLATILITY_PCT = 11.0  # Stop trading if volatility >= 11%
@@ -811,6 +816,23 @@ def lambda_handler(event, context):
         print(f"  Contracts: {kelly['num_contracts']}")
         print(f"  Risk: ${kelly['risk_dollars']:.2f}")
         print(f"  Potential profit: ${kelly['potential_profit']:.2f}")
+
+        # Check minimum profit percentage (risk/reward filter)
+        profit_pct = (100 - market_no_price) / market_no_price * 100
+        print(f"  Profit %: {profit_pct:.1f}%")
+
+        if profit_pct < MIN_PROFIT_PCT:
+            print(f"Profit {profit_pct:.1f}% below minimum {MIN_PROFIT_PCT}% - skipping")
+            return {
+                'statusCode': 200,
+                'body': json.dumps({
+                    'status': 'insufficient_profit',
+                    'market_no_price': market_no_price,
+                    'profit_pct': round(profit_pct, 1),
+                    'min_profit_required': MIN_PROFIT_PCT,
+                    'message': f'Profit {profit_pct:.1f}% below minimum {MIN_PROFIT_PCT}% (price {market_no_price}¢ too high)'
+                })
+            }
 
         # =========================================================================
         # Step 6: Execute the trade

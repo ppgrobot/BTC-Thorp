@@ -5,7 +5,7 @@
 set -e
 
 FUNCTION_NAME="KalshiWeatherTradingBot"
-REGION="us-east-1"
+REGION="us-east-2"
 
 echo "================================"
 echo "Kalshi Trading Bot Deployment"
@@ -33,7 +33,7 @@ echo "Installing dependencies for Lambda..."
 pip3 install --target $TEMP_DIR \
     --platform manylinux2014_x86_64 \
     --implementation cp \
-    --python-version 3.12 \
+    --python-version 3.11 \
     --only-binary=:all: \
     requests==2.31.0 \
     cryptography==42.0.0 \
