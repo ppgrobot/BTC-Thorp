@@ -28,9 +28,13 @@ echo "Building in $TEMP_DIR..."
 # Copy Python files
 cp $PACKAGE_DIR/*.py $TEMP_DIR/
 
-# Install dependencies for Lambda (Linux x86_64)
+# Install dependencies for Lambda (Linux x86_64, Python 3.12)
 echo "Installing dependencies for Lambda..."
-pip3 install --target $TEMP_DIR --platform manylinux2014_x86_64 --only-binary=:all: \
+pip3 install --target $TEMP_DIR \
+    --platform manylinux2014_x86_64 \
+    --implementation cp \
+    --python-version 3.12 \
+    --only-binary=:all: \
     requests==2.31.0 \
     cryptography==42.0.0 \
     2>/dev/null || {
@@ -66,9 +70,13 @@ if aws lambda get-function --function-name $COLLECTOR_NAME --region $REGION 2>/d
         --zip-file fileb://$ZIP_FILE \
         --region $REGION
 
-    # Update timeout for 10-second collection (6 samples * 10s + buffer = 70s)
+    # Wait for code update before config update
+    aws lambda wait function-updated --function-name $COLLECTOR_NAME --region $REGION 2>/dev/null || true
+
+    # Update runtime and timeout for 10-second collection (6 samples * 10s + buffer = 70s)
     aws lambda update-function-configuration \
         --function-name $COLLECTOR_NAME \
+        --runtime python3.12 \
         --timeout 70 \
         --region $REGION
 else
@@ -101,6 +109,15 @@ if aws lambda get-function --function-name $TRADER_NAME --region $REGION 2>/dev/
     aws lambda update-function-code \
         --function-name $TRADER_NAME \
         --zip-file fileb://$ZIP_FILE \
+        --region $REGION
+
+    # Wait for code update before config update
+    aws lambda wait function-updated --function-name $TRADER_NAME --region $REGION 2>/dev/null || true
+
+    # Ensure runtime is Python 3.12
+    aws lambda update-function-configuration \
+        --function-name $TRADER_NAME \
+        --runtime python3.12 \
         --region $REGION
 else
     echo "Creating new function..."

@@ -37,10 +37,10 @@ except ImportError as e:
 # =============================================================================
 
 # Minimum basis points above current price for strike selection
-MIN_BPS_ABOVE = 20  # 0.20%
+MIN_BPS_ABOVE = 30  # Strike must be 0.30% above spot
 
 # Minimum edge required to trade (model prob - market prob)
-MIN_EDGE_PCT = 3  # Only trade if we see 3%+ edge
+MIN_EDGE_PCT = 4  # Only trade if we see 4%+ edge
 
 # Maximum fraction of bankroll to risk per trade (Kelly scaling)
 MAX_KELLY_FRACTION = 0.25  # Quarter Kelly for safety
@@ -54,12 +54,12 @@ MAX_NO_PRICE = 99   # Don't buy NO above 99¢ (no profit)
 
 # Minimum profit percentage required to trade
 # Profit % = (100 - price) / price * 100
-# At 9%, we skip trades where price > 91¢ (bad risk/reward)
-MIN_PROFIT_PCT = 9
+# At 4%, we skip trades where price > 96¢ (bad risk/reward)
+MIN_PROFIT_PCT = 4
 
 # Maximum volatility threshold - halt trading if 15m volatility exceeds this
 # High volatility makes our normal distribution model unreliable
-MAX_VOLATILITY_PCT = 11.0  # Stop trading if volatility >= 11%
+MAX_VOLATILITY_PCT = 10.0  # Stop trading if volatility >= 10%
 
 # Kalshi event series for BTC hourly
 BTC_SERIES = "KXBTCD"
@@ -736,8 +736,10 @@ def lambda_handler(event, context):
 
         strike_price = target_market['floor_strike']
         market_no_price = target_market.get('no_ask', 0)
+        print(f"Strike: ${strike_price:,.2f}, NO ask: {market_no_price}¢")
 
         if market_no_price < MIN_NO_PRICE or market_no_price > MAX_NO_PRICE:
+            print(f"❌ NO price {market_no_price}¢ outside bounds {MIN_NO_PRICE}-{MAX_NO_PRICE}¢")
             return {
                 'statusCode': 200,
                 'body': json.dumps({

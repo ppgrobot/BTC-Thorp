@@ -290,13 +290,11 @@ def calculate_strikes(btc_price, volatility, minutes_to_settlement=15):
         if m['floor_strike']:
             market_lookup[m['floor_strike']] = m
 
-    # Minimum strike: 20 bps above current price
-    min_strike = btc_price * 1.002
-
-    # Find strikes that are at least 20 bps above current price
+    # Show strikes starting just above current price (not filtered by 20 bps)
+    # This allows dashboard to show all tradeable opportunities
     for market in kalshi_markets:
         strike_price = market.get('floor_strike')
-        if not strike_price or strike_price < min_strike:
+        if not strike_price or strike_price < btc_price:
             continue
 
         # Calculate distance as percentage from current price
