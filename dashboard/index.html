@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BTC Fair Value Calculator</title>
+    <title>Crypto Trading Dashboard</title>
     <style>
         * {
             margin: 0;
@@ -403,11 +403,83 @@
             margin: 0 -15px;
             padding: 0 15px;
         }
+
+        /* IRR Stats Card */
+        .irr-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        @media (max-width: 600px) {
+            .irr-stats {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .irr-stat {
+            text-align: center;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+        }
+
+        .irr-stat .stat-label {
+            font-size: 0.65rem;
+            color: #888;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .irr-stat .stat-value {
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+
+        .irr-stat .stat-value.positive { color: #4caf50; }
+        .irr-stat .stat-value.negative { color: #f44336; }
+
+        /* Trade log table styles */
+        .trade-log-table {
+            font-size: 0.75rem;
+        }
+
+        .trade-log-table th {
+            font-size: 0.65rem;
+            padding: 8px 4px;
+        }
+
+        .trade-log-table td {
+            padding: 6px 4px;
+        }
+
+        .asset-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            font-weight: bold;
+        }
+
+        .asset-badge.btc {
+            background: rgba(247, 147, 26, 0.2);
+            color: #f7931a;
+        }
+
+        .asset-badge.eth {
+            background: rgba(98, 126, 234, 0.2);
+            color: #627eea;
+        }
+
+        .pnl-positive { color: #4caf50; font-weight: 600; }
+        .pnl-negative { color: #f44336; font-weight: 600; }
+        .pnl-pending { color: #ff9800; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1><span class="live-indicator"></span>BTC Fair Value <span>Calculator</span></h1>
+        <h1><span class="live-indicator"></span>Crypto Trading <span>Dashboard</span></h1>
 
         <div class="vol-stop-banner" id="volStopBanner">
             ⚠️ VOLATILITY STOP ACTIVE - Trading halted due to high volatility (>11%)
@@ -421,16 +493,16 @@
                 <div class="value" id="btcPrice">--</div>
             </div>
             <div class="info-card">
-                <div class="label">Time to Settlement</div>
-                <div class="value blue" id="minsToSettle">--</div>
+                <div class="label">ETH/USD</div>
+                <div class="value blue" id="ethPrice">--</div>
             </div>
             <div class="info-card">
-                <div class="label">Settlement Time</div>
-                <div class="settlement-badge" id="settlementTime">--</div>
+                <div class="label">Time to Settle</div>
+                <div class="value" id="minsToSettle" style="color: #4caf50;">--</div>
             </div>
             <div class="info-card">
-                <div class="label">Vol Used</div>
-                <div class="value" id="volatility15m">--</div>
+                <div class="label">P&L (12/18+)</div>
+                <div class="value" id="totalPnl">--</div>
             </div>
         </div>
 
@@ -460,11 +532,11 @@
 
         <div class="main-content">
             <div class="left-column">
-                <!-- Current Hour Contracts -->
+                <!-- BTC Contracts -->
                 <div class="section-card">
-                    <h2>Current Hour Contracts <span class="badge green">HOURLY</span></h2>
+                    <h2>BTC Contracts <span class="badge green">HOURLY</span></h2>
                     <div class="table-wrapper">
-                        <table id="strikesTable">
+                        <table id="btcStrikesTable">
                             <thead>
                                 <tr>
                                     <th>Strike</th>
@@ -475,18 +547,72 @@
                                     <th>Bet</th>
                                 </tr>
                             </thead>
-                            <tbody id="strikesBody">
+                            <tbody id="btcStrikesBody">
                                 <tr><td colspan="6" class="status">Loading...</td></tr>
                             </tbody>
                         </table>
                     </div>
                 </div>
 
-                <!-- Recent Trades -->
+                <!-- ETH Contracts -->
+                <div class="section-card eth-section">
+                    <h2>ETH Contracts <span class="badge blue">HOURLY</span></h2>
+                    <div class="table-wrapper">
+                        <table id="ethStrikesTable">
+                            <thead>
+                                <tr>
+                                    <th>Strike</th>
+                                    <th>Dist</th>
+                                    <th>Fair</th>
+                                    <th>Ask</th>
+                                    <th>Edge</th>
+                                    <th>Bet</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ethStrikesBody">
+                                <tr><td colspan="6" class="status">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Trade Log with IRR -->
                 <div class="section-card">
-                    <h2>Recent Trades <span class="badge blue">LOG</span></h2>
-                    <div id="tradeLog">
-                        <div class="status">Loading trade history...</div>
+                    <h2>Trade Log <span class="badge yellow">SINCE 12/18</span></h2>
+                    <div class="irr-stats" id="irrStats">
+                        <div class="irr-stat">
+                            <div class="stat-label">Start Balance</div>
+                            <div class="stat-value">$1,000</div>
+                        </div>
+                        <div class="irr-stat">
+                            <div class="stat-label">Current</div>
+                            <div class="stat-value" id="currentBalance">--</div>
+                        </div>
+                        <div class="irr-stat">
+                            <div class="stat-label">Return</div>
+                            <div class="stat-value" id="totalReturn">--</div>
+                        </div>
+                        <div class="irr-stat">
+                            <div class="stat-label">Win Rate</div>
+                            <div class="stat-value" id="winRate">--</div>
+                        </div>
+                    </div>
+                    <div class="table-wrapper">
+                        <table class="trade-log-table" id="tradeLogTable">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Asset</th>
+                                    <th>Strike</th>
+                                    <th>Bet</th>
+                                    <th>Edge</th>
+                                    <th>P&L</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tradeLogBody">
+                                <tr><td colspan="6" class="status">Loading...</td></tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -495,7 +621,7 @@
                 <!-- Volatility Chart -->
                 <div class="section-card hide-mobile" id="volSection">
                     <h2>Realized Volatility (1σ) by Window</h2>
-                    <div id="volUsing" style="color: #4caf50; font-size: 0.85rem; margin-bottom: 8px; font-weight: 600;">Using 15m: --</div>
+                    <div id="volUsing" style="color: #4caf50; font-size: 0.85rem; margin-bottom: 8px; font-weight: 600;">BTC 15m: -- | ETH 15m: --</div>
                     <div class="chart-container">
                         <canvas id="volChart"></canvas>
                     </div>
@@ -503,7 +629,7 @@
 
                 <!-- Price Chart -->
                 <div class="section-card hide-mobile">
-                    <h2>Price History (60 min)</h2>
+                    <h2>BTC Price History (60 min)</h2>
                     <div class="chart-container">
                         <canvas id="priceChart"></canvas>
                     </div>
@@ -512,14 +638,22 @@
                 <!-- Trading Status -->
                 <div class="section-card">
                     <h2>Trading Status</h2>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; text-align: center;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; text-align: center;">
                         <div>
-                            <div style="color: #888; font-size: 0.7rem; text-transform: uppercase; margin-bottom: 5px;">Status</div>
-                            <div id="tradingStatus" class="positive" style="font-size: 1.1rem; font-weight: bold;">--</div>
+                            <div style="color: #888; font-size: 0.65rem; text-transform: uppercase; margin-bottom: 4px;">BTC Vol</div>
+                            <div id="btcVol" style="font-size: 0.95rem; font-weight: bold; color: #4caf50;">--</div>
                         </div>
                         <div>
-                            <div style="color: #888; font-size: 0.7rem; text-transform: uppercase; margin-bottom: 5px;">Min Profit</div>
-                            <div style="font-size: 1.1rem; font-weight: bold; color: #f7931a;">9%</div>
+                            <div style="color: #888; font-size: 0.65rem; text-transform: uppercase; margin-bottom: 4px;">ETH Vol</div>
+                            <div id="ethVol" style="font-size: 0.95rem; font-weight: bold; color: #4caf50;">--</div>
+                        </div>
+                        <div>
+                            <div style="color: #888; font-size: 0.65rem; text-transform: uppercase; margin-bottom: 4px;">Status</div>
+                            <div id="tradingStatus" class="positive" style="font-size: 0.95rem; font-weight: bold;">--</div>
+                        </div>
+                        <div>
+                            <div style="color: #888; font-size: 0.65rem; text-transform: uppercase; margin-bottom: 4px;">Min Edge</div>
+                            <div style="font-size: 0.95rem; font-weight: bold; color: #f7931a;">4%</div>
                         </div>
                     </div>
                 </div>
@@ -700,55 +834,50 @@
                     '$' + Math.round(data.btc_price).toLocaleString();
             }
 
+            // Update ETH price
+            if (data.eth_price) {
+                document.getElementById('ethPrice').textContent =
+                    '$' + Math.round(data.eth_price).toLocaleString();
+            }
+
             // Update minutes to settlement
             if (data.minutes_to_settlement !== undefined) {
                 document.getElementById('minsToSettle').textContent =
                     data.minutes_to_settlement + ' min';
-
-                // Calculate settlement time
-                const now = new Date();
-                const settlementHour = now.getHours() + 1;
-                const settlementTime = settlementHour > 12 ?
-                    (settlementHour - 12) + ':00 PM' :
-                    settlementHour + ':00 AM';
-                document.getElementById('settlementTime').textContent = settlementTime;
             }
 
-            // Update volatility
-            if (data.volatility) {
-                const vol15m = data.volatility['15m']?.std || 0;
-                document.getElementById('volatility15m').textContent = vol15m.toFixed(3) + '%';
-                document.getElementById('volatility15m').className =
-                    'value ' + (vol15m >= 11 ? 'red' : 'green');
+            // Update volatility for both assets
+            const btcVol = data.btc_volatility || data.volatility;
+            const ethVol = data.eth_volatility;
 
-                // Update "Using Xm" display
-                document.getElementById('volUsing').textContent = `Using 15m: ${vol15m.toFixed(3)}%`;
+            if (btcVol) {
+                const btcVol15m = btcVol['15m']?.std || 0;
+                document.getElementById('btcVol').textContent = btcVol15m.toFixed(2) + '%';
+                document.getElementById('btcVol').style.color = btcVol15m >= 10 ? '#f44336' : '#4caf50';
 
                 // Check volatility stop
                 const banner = document.getElementById('volStopBanner');
-                if (vol15m >= 11) {
+                if (btcVol15m >= 10) {
                     banner.classList.add('active');
                 } else {
                     banner.classList.remove('active');
                 }
 
-                // Update volatility scatter chart
-                // Available windows: 15m, 30m, 60m, 90m, 120m
-                const usedWindow = 15;  // The bot uses 15m trailing volatility
+                // Update volatility scatter chart (BTC)
                 const windows = [
-                    { mins: 120, vol: data.volatility['120m']?.std || 0 },
-                    { mins: 90, vol: data.volatility['90m']?.std || 0 },
-                    { mins: 60, vol: data.volatility['60m']?.std || 0 },
-                    { mins: 30, vol: data.volatility['30m']?.std || 0 },
-                    { mins: 15, vol: data.volatility['15m']?.std || 0 }
+                    { mins: 120, vol: btcVol['120m']?.std || 0 },
+                    { mins: 90, vol: btcVol['90m']?.std || 0 },
+                    { mins: 60, vol: btcVol['60m']?.std || 0 },
+                    { mins: 30, vol: btcVol['30m']?.std || 0 },
+                    { mins: 15, vol: btcVol['15m']?.std || 0 }
                 ];
 
                 const scatterData = windows.map(w => ({ x: w.mins, y: w.vol }));
                 const bgColors = windows.map(w =>
-                    w.mins === usedWindow ? 'rgba(76, 175, 80, 0.9)' : 'rgba(255, 152, 0, 0.8)'
+                    w.mins === 15 ? 'rgba(76, 175, 80, 0.9)' : 'rgba(255, 152, 0, 0.8)'
                 );
                 const borderColors = windows.map(w =>
-                    w.mins === usedWindow ? '#4caf50' : '#ff9800'
+                    w.mins === 15 ? '#4caf50' : '#ff9800'
                 );
 
                 volChart.data.datasets[0].data = scatterData;
@@ -756,6 +885,17 @@
                 volChart.data.datasets[0].borderColor = borderColors;
                 volChart.update();
             }
+
+            if (ethVol) {
+                const ethVol15m = ethVol['15m']?.std || 0;
+                document.getElementById('ethVol').textContent = ethVol15m.toFixed(2) + '%';
+                document.getElementById('ethVol').style.color = ethVol15m >= 10 ? '#f44336' : '#4caf50';
+            }
+
+            // Update vol display
+            const btcVolDisplay = btcVol ? (btcVol['15m']?.std || 0).toFixed(2) : '--';
+            const ethVolDisplay = ethVol ? (ethVol['15m']?.std || 0).toFixed(2) : '--';
+            document.getElementById('volUsing').textContent = `BTC 15m: ${btcVolDisplay}% | ETH 15m: ${ethVolDisplay}%`;
 
             // Update price history chart
             if (data.price_history && data.price_history.length > 0) {
@@ -773,33 +913,71 @@
                 priceChart.update();
             }
 
+            // Update IRR stats
+            if (data.irr_stats) {
+                const irr = data.irr_stats;
+                document.getElementById('currentBalance').textContent = '$' + irr.current_balance.toLocaleString();
+                document.getElementById('currentBalance').className = 'stat-value ' + (irr.total_pnl >= 0 ? 'positive' : 'negative');
+
+                const returnPct = irr.total_return_pct >= 0 ? '+' + irr.total_return_pct.toFixed(1) : irr.total_return_pct.toFixed(1);
+                document.getElementById('totalReturn').textContent = returnPct + '%';
+                document.getElementById('totalReturn').className = 'stat-value ' + (irr.total_return_pct >= 0 ? 'positive' : 'negative');
+
+                document.getElementById('winRate').textContent = irr.win_rate + '%';
+                document.getElementById('winRate').className = 'stat-value ' + (irr.win_rate >= 50 ? 'positive' : 'negative');
+
+                // Update header P&L
+                const pnlDisplay = irr.total_pnl >= 0 ? '+$' + irr.total_pnl.toFixed(0) : '-$' + Math.abs(irr.total_pnl).toFixed(0);
+                document.getElementById('totalPnl').textContent = pnlDisplay;
+                document.getElementById('totalPnl').className = 'value ' + (irr.total_pnl >= 0 ? 'green' : 'red');
+            }
+
             // Update trade log
             if (data.trades) {
-                const logDiv = document.getElementById('tradeLog');
+                const tbody = document.getElementById('tradeLogBody');
                 if (data.trades.length === 0) {
-                    logDiv.innerHTML = '<div class="status">No trades yet today</div>';
+                    tbody.innerHTML = '<tr><td colspan="6" class="status">No trades yet</td></tr>';
                 } else {
-                    logDiv.innerHTML = data.trades.slice(0, 10).map(t => {
+                    tbody.innerHTML = data.trades.slice(0, 15).map(t => {
                         const ts = t.timestamp ? new Date(t.timestamp) : null;
                         const timeStr = ts ? ts.toLocaleTimeString('en-US', {
+                            month: 'numeric',
+                            day: 'numeric',
                             hour: '2-digit',
                             minute: '2-digit',
-                            hour12: true
+                            hour12: false
                         }) : '--';
 
+                        const asset = t.asset || 'BTC';
+                        const assetClass = asset.toLowerCase();
                         const strike = t.strike ? '$' + Math.round(t.strike).toLocaleString() : '--';
-                        const statusClass = t.status === 'resting' ? 'pending' :
-                                           t.status === 'filled' ? 'positive' : '';
-                        const statusIcon = t.status === 'resting' ? '⏳' :
-                                          t.status === 'filled' ? '✓' : '';
+                        const bet = t.total_cost ? '$' + t.total_cost.toFixed(0) : '--';
+                        const edge = t.edge ? '+' + t.edge.toFixed(0) + '%' : '--';
+
+                        // P&L display
+                        let pnlDisplay = '--';
+                        let pnlClass = 'pnl-pending';
+                        if (t.pnl !== null && t.pnl !== undefined) {
+                            if (t.pnl >= 0) {
+                                pnlDisplay = '+$' + t.pnl.toFixed(0);
+                                pnlClass = 'pnl-positive';
+                            } else {
+                                pnlDisplay = '-$' + Math.abs(t.pnl).toFixed(0);
+                                pnlClass = 'pnl-negative';
+                            }
+                        } else if (t.settled === false) {
+                            pnlDisplay = '⏳';
+                        }
 
                         return `
-                            <div class="trade-item">
-                                <span>${timeStr}</span>
-                                <span>${strike}</span>
-                                <span>${t.contracts || 0} @ ${t.price || 0}¢</span>
-                                <span class="${statusClass}">${statusIcon} ${t.status || '--'}</span>
-                            </div>
+                            <tr>
+                                <td>${timeStr}</td>
+                                <td><span class="asset-badge ${assetClass}">${asset}</span></td>
+                                <td>${strike}</td>
+                                <td>${bet}</td>
+                                <td class="positive">${edge}</td>
+                                <td class="${pnlClass}">${pnlDisplay}</td>
+                            </tr>
                         `;
                     }).join('');
                 }
@@ -811,50 +989,69 @@
             const bankroll = parseFloat(document.getElementById('bankroll').value) || 100;
             const kellyFrac = parseFloat(document.getElementById('kellyFraction').value) || 0.25;
 
-            if (!cachedData || !cachedData.strikes) {
-                const tbody = document.getElementById('strikesBody');
-                tbody.innerHTML = '<tr><td colspan="6" class="status">Waiting for data...</td></tr>';
-                return;
+            // Update BTC strikes
+            const btcStrikes = cachedData?.btc_strikes || cachedData?.strikes || [];
+            const btcTbody = document.getElementById('btcStrikesBody');
+
+            if (btcStrikes.length === 0) {
+                btcTbody.innerHTML = '<tr><td colspan="6" class="status">No BTC strikes available</td></tr>';
+            } else {
+                btcTbody.innerHTML = btcStrikes.map(s => {
+                    const adjustedBet = (s.kelly_bet || 0) * kellyFrac * (bankroll / 100);
+                    const edgeClass = s.edge > 0 ? 'positive' : (s.edge < 0 ? 'negative' : '');
+                    const edgeDisplay = s.edge > 0 ? '+' + s.edge : s.edge;
+
+                    return `
+                        <tr>
+                            <td>$${Math.round(s.strike).toLocaleString()}</td>
+                            <td>${s.distance_bps}bp</td>
+                            <td class="positive">${s.fair_no_price}¢</td>
+                            <td>${s.no_ask > 0 ? s.no_ask + '¢' : '--'}</td>
+                            <td class="${edgeClass}">${s.no_ask > 0 ? edgeDisplay : '--'}</td>
+                            <td>${adjustedBet > 0.01 ? '$' + adjustedBet.toFixed(0) : '--'}</td>
+                        </tr>
+                    `;
+                }).join('');
             }
 
-            const strikes = cachedData.strikes;
-            const tbody = document.getElementById('strikesBody');
+            // Update ETH strikes
+            const ethStrikes = cachedData?.eth_strikes || [];
+            const ethTbody = document.getElementById('ethStrikesBody');
 
-            if (strikes.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="status">No strikes available</td></tr>';
-                return;
+            if (ethStrikes.length === 0) {
+                ethTbody.innerHTML = '<tr><td colspan="6" class="status">No ETH strikes available</td></tr>';
+            } else {
+                ethTbody.innerHTML = ethStrikes.map(s => {
+                    const adjustedBet = (s.kelly_bet || 0) * kellyFrac * (bankroll / 100);
+                    const edgeClass = s.edge > 0 ? 'positive' : (s.edge < 0 ? 'negative' : '');
+                    const edgeDisplay = s.edge > 0 ? '+' + s.edge : s.edge;
+
+                    return `
+                        <tr>
+                            <td>$${Math.round(s.strike).toLocaleString()}</td>
+                            <td>${s.distance_bps}bp</td>
+                            <td class="positive">${s.fair_no_price}¢</td>
+                            <td>${s.no_ask > 0 ? s.no_ask + '¢' : '--'}</td>
+                            <td class="${edgeClass}">${s.no_ask > 0 ? edgeDisplay : '--'}</td>
+                            <td>${adjustedBet > 0.01 ? '$' + adjustedBet.toFixed(0) : '--'}</td>
+                        </tr>
+                    `;
+                }).join('');
             }
-
-            tbody.innerHTML = strikes.map(s => {
-                const adjustedBet = (s.kelly_bet || 0) * kellyFrac * (bankroll / 100);
-                const edgeClass = s.edge > 0 ? 'positive' : (s.edge < 0 ? 'negative' : '');
-                const edgeDisplay = s.edge > 0 ? '+' + s.edge : s.edge;
-
-                return `
-                    <tr>
-                        <td>$${Math.round(s.strike).toLocaleString()}</td>
-                        <td>${s.distance_bps}bp</td>
-                        <td class="positive">${s.fair_no_price}¢</td>
-                        <td>${s.no_ask > 0 ? s.no_ask + '¢' : '--'}</td>
-                        <td class="${edgeClass}">${s.no_ask > 0 ? edgeDisplay : '--'}</td>
-                        <td>${adjustedBet > 0.01 ? '$' + adjustedBet.toFixed(0) : '--'}</td>
-                    </tr>
-                `;
-            }).join('');
         }
 
         // Update trading status
         function updateTradingStatus() {
-            const volText = document.getElementById('volatility15m').textContent;
-            const vol = parseFloat(volText) || 0;
+            const btcVolText = document.getElementById('btcVol').textContent;
+            const btcVol = parseFloat(btcVolText) || 0;
             const statusEl = document.getElementById('tradingStatus');
 
-            if (vol >= 11) {
+            if (btcVol >= 10) {
                 statusEl.textContent = 'STOPPED';
-                statusEl.className = 'negative';
+                statusEl.style.color = '#f44336';
             } else {
                 statusEl.textContent = 'ACTIVE';
-                statusEl.className = 'positive';
+                statusEl.style.color = '#4caf50';
             }
         }
 

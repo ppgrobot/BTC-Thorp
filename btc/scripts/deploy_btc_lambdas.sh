@@ -167,26 +167,49 @@ aws events put-targets \
     --targets "Id"="1","Arn"="arn:aws:lambda:$REGION:$(aws sts get-caller-identity --query Account --output text):function:$COLLECTOR_NAME" \
     --region $REGION
 
-# Trading bot - at minute 45 of every hour
-TRADER_RULE="BTCTradingBot-Minute45"
-echo "Creating rule: $TRADER_RULE (at minute 45 every hour)"
+# Trading bot - at minute 30 of every hour (early window, 12% edge)
+TRADER_RULE_EARLY="BTCTradingBot-Minute30"
+echo "Creating rule: $TRADER_RULE_EARLY (at minute 30 every hour - early window)"
 
 aws events put-rule \
-    --name $TRADER_RULE \
+    --name $TRADER_RULE_EARLY \
+    --schedule-expression "cron(30 * * * ? *)" \
+    --state ENABLED \
+    --region $REGION
+
+aws lambda add-permission \
+    --function-name $TRADER_NAME \
+    --statement-id "EventBridge-$TRADER_RULE_EARLY" \
+    --action "lambda:InvokeFunction" \
+    --principal events.amazonaws.com \
+    --source-arn "arn:aws:events:$REGION:$(aws sts get-caller-identity --query Account --output text):rule/$TRADER_RULE_EARLY" \
+    --region $REGION 2>/dev/null || echo "Permission already exists"
+
+aws events put-targets \
+    --rule $TRADER_RULE_EARLY \
+    --targets "Id"="1","Arn"="arn:aws:lambda:$REGION:$(aws sts get-caller-identity --query Account --output text):function:$TRADER_NAME" \
+    --region $REGION
+
+# Trading bot - at minute 45 of every hour (late window, 4% edge)
+TRADER_RULE_LATE="BTCTradingBot-Minute45"
+echo "Creating rule: $TRADER_RULE_LATE (at minute 45 every hour - late window)"
+
+aws events put-rule \
+    --name $TRADER_RULE_LATE \
     --schedule-expression "cron(45 * * * ? *)" \
     --state ENABLED \
     --region $REGION
 
 aws lambda add-permission \
     --function-name $TRADER_NAME \
-    --statement-id "EventBridge-$TRADER_RULE" \
+    --statement-id "EventBridge-$TRADER_RULE_LATE" \
     --action "lambda:InvokeFunction" \
     --principal events.amazonaws.com \
-    --source-arn "arn:aws:events:$REGION:$(aws sts get-caller-identity --query Account --output text):rule/$TRADER_RULE" \
+    --source-arn "arn:aws:events:$REGION:$(aws sts get-caller-identity --query Account --output text):rule/$TRADER_RULE_LATE" \
     --region $REGION 2>/dev/null || echo "Permission already exists"
 
 aws events put-targets \
-    --rule $TRADER_RULE \
+    --rule $TRADER_RULE_LATE \
     --targets "Id"="1","Arn"="arn:aws:lambda:$REGION:$(aws sts get-caller-identity --query Account --output text):function:$TRADER_NAME" \
     --region $REGION
 
@@ -197,7 +220,7 @@ echo "=========================================="
 echo ""
 echo "Lambdas deployed:"
 echo "  - $COLLECTOR_NAME (runs every minute)"
-echo "  - $TRADER_NAME (runs at minute 45 every hour)"
+echo "  - $TRADER_NAME (runs at :30 and :45 every hour)"
 echo ""
 echo "Next steps:"
 echo "  1. Set Kalshi credentials on $TRADER_NAME:"

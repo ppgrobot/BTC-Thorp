@@ -440,7 +440,7 @@ def lambda_handler(event, context):
                 print("\nPlacing resting bids at 99¢...")
                 placed_orders = execute_liquidity_trades(
                     opportunities=opportunities,
-                    max_daily_budget_per_contract=10.50,  # $10.50 per contract per day (~10 contracts)
+                    max_daily_budget_per_contract=102.00,  # $102 per contract per day (~100 contracts)
                     bid_price=99,  # Bid at 99¢
                 )
                 print(f"Placed {len(placed_orders)} orders")

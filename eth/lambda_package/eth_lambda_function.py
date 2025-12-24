@@ -1,24 +1,21 @@
 """
-Kalshi Bitcoin Hourly NO Contract Bot
+Kalshi Ethereum Hourly NO Contract Bot
 
-Strategy: Buy NO contracts on strikes above current BTC price when our
+Strategy: Buy NO contracts on strikes above current ETH price when our
 volatility model shows the market is underpricing NO.
 
 Trading Windows:
-- Early window (:30-:45): Requires 12%+ edge
+- Early window (:30-:45): Requires 12%+ edge (matches BTC)
 - Late window (:45-:00): Requires 4%+ edge
 
 Position Sizing:
-- Shares Kelly allocation with ETH bot via DynamoDB tracking
-- Combined exposure across BTC+ETH capped at MAX_KELLY_FRACTION (0.20 for BTC)
+- Shares Kelly allocation with BTC bot via DynamoDB tracking
+- Combined exposure across BTC+ETH capped at MAX_KELLY_FRACTION (0.15 for ETH)
 
 Risk Controls:
-- Minimum 30bp above spot for strike selection
+- Minimum 50bp above spot (vs 30bp for BTC) for more buffer
 - Volatility floor of 0.15% prevents overconfidence in quiet markets
-- Model probability capped at 99% to prevent overconfidence
-- Halt trading if volatility exceeds 10%
-
-Trades 24/7 - always targets the NEXT hour's contract.
+- Smaller Kelly fraction (0.15 vs 0.25) for position sizing
 """
 
 import json
@@ -43,46 +40,43 @@ except ImportError as e:
 # =============================================================================
 
 # Minimum basis points above current price for strike selection
-MIN_BPS_ABOVE = 30  # Strike must be 0.30% above spot
+MIN_BPS_ABOVE = 50  # Strike must be 0.50% above spot (more buffer for ETH volatility)
 
 # Minimum edge required to trade (model prob - market prob)
 # Different thresholds for different trading windows:
-MIN_EDGE_PCT_EARLY = 12  # Early window (:30-:45) requires 12%+ edge
+MIN_EDGE_PCT_EARLY = 12  # Early window (:30-:45) requires 12%+ edge (matches BTC)
 MIN_EDGE_PCT_LATE = 4   # Late window (:45-:00) requires 4%+ edge
 
 # Maximum fraction of bankroll to risk per trade (Kelly scaling)
-MAX_KELLY_FRACTION = 0.20  # 20% Kelly for safety
+MAX_KELLY_FRACTION = 0.15  # Reduced from 0.25 - smaller positions for ETH
+
+# Minimum volatility floor - prevents overconfidence in quiet markets
+MIN_VOLATILITY_PCT = 0.15  # Never use vol below 0.15% for model calculations
 
 # Maximum contracts per trade (no cap - let Kelly size it)
 MAX_CONTRACTS = 999
 
 # Minimum and maximum NO price to consider (sanity bounds)
-MIN_NO_PRICE = 50   # Don't buy NO below 50¢ (too risky)
-MAX_NO_PRICE = 99   # Don't buy NO above 99¢ (no profit)
+MIN_NO_PRICE = 50   # Don't buy NO below 50c (too risky)
+MAX_NO_PRICE = 99   # Don't buy NO above 99c (no profit)
 
 # Minimum profit percentage required to trade
 # Profit % = (100 - price) / price * 100
-# At 4%, we skip trades where price > 96¢ (bad risk/reward)
+# At 4%, we skip trades where price > 96c (bad risk/reward)
 MIN_PROFIT_PCT = 4
 
 # Maximum volatility threshold - halt trading if 15m volatility exceeds this
 # High volatility makes our normal distribution model unreliable
 MAX_VOLATILITY_PCT = 10.0  # Stop trading if volatility >= 10%
 
-# Minimum volatility floor - prevents overconfidence in quiet markets
-MIN_VOLATILITY_PCT = 0.15  # Never use vol below 0.15% for model calculations (matches ETH)
-
-# Maximum model probability - prevents overconfidence
-MAX_MODEL_PROB = 0.99  # Cap model at 99% to avoid "100% certain" bets
-
-# Kalshi event series for BTC hourly
-BTC_SERIES = "KXBTCD"
+# Kalshi event series for ETH hourly
+ETH_SERIES = "KXETHD"
 
 # DynamoDB table for volatility data
-VOL_TABLE = "BTCPriceHistory"
+VOL_TABLE = "ETHPriceHistory"
 
 # DynamoDB table for trade logs
-TRADE_LOG_TABLE = "BTCTradeLog"
+TRADE_LOG_TABLE = "ETHTradeLog"
 
 # DynamoDB table for shared position tracking (BTC + ETH)
 POSITION_TABLE = "CryptoPositions"
@@ -169,12 +163,12 @@ def update_hour_position(hour_key, asset, exposure_fraction):
         current = get_hour_positions(hour_key)
 
         # Update the appropriate asset
-        if asset == 'btc':
-            new_btc = current['btc_exposure'] + exposure_fraction
-            new_eth = current['eth_exposure']
-        else:
+        if asset == 'eth':
             new_eth = current['eth_exposure'] + exposure_fraction
             new_btc = current['btc_exposure']
+        else:
+            new_btc = current['btc_exposure'] + exposure_fraction
+            new_eth = current['eth_exposure']
 
         # TTL: delete after 2 hours (positions only matter for current hour)
         ttl = int((datetime.utcnow() + timedelta(hours=2)).timestamp())
@@ -237,14 +231,6 @@ def get_volatility_from_dynamo():
 
         vol_data = {
             'updated_at': item.get('updated_at'),
-            '5m_std': float(item.get('vol_5m_std', 0)),
-            '5m_samples': int(item.get('vol_5m_samples', 0)),
-            '7m_std': float(item.get('vol_7m_std', 0)),
-            '7m_samples': int(item.get('vol_7m_samples', 0)),
-            '10m_std': float(item.get('vol_10m_std', 0)),
-            '10m_samples': int(item.get('vol_10m_samples', 0)),
-            '12m_std': float(item.get('vol_12m_std', 0)),
-            '12m_samples': int(item.get('vol_12m_samples', 0)),
             '15m_std': float(item.get('vol_15m_std', 0)),
             '15m_range': float(item.get('vol_15m_range', 0)),
             '15m_max_move': float(item.get('vol_15m_max_move', 0)),
@@ -260,60 +246,14 @@ def get_volatility_from_dynamo():
         return None
 
 
-def get_dynamic_volatility(vol_data, minutes_to_settlement):
+def calculate_model_probability(eth_price, strike_price, vol_std_pct, minutes_to_settlement):
     """
-    Get the appropriate volatility based on time remaining to settlement.
-
-    Uses a sliding window approach:
-    - At 15 min remaining: use 15m volatility
-    - At 10 min remaining: use 10m volatility
-    - At 5 min remaining: use 5m volatility
-
-    Returns (volatility_std, window_minutes, samples) tuple.
-    """
-    # Map minutes remaining to volatility window
-    # We want the window to match the time remaining (no scaling needed)
-    if minutes_to_settlement >= 15:
-        window = 15
-    elif minutes_to_settlement >= 12:
-        window = 12
-    elif minutes_to_settlement >= 10:
-        window = 10
-    elif minutes_to_settlement >= 7:
-        window = 7
-    else:
-        window = 5
-
-    vol_key = f'{window}m_std'
-    samples_key = f'{window}m_samples'
-
-    vol_std = vol_data.get(vol_key, 0)
-    samples = vol_data.get(samples_key, 0)
-
-    print(f"Dynamic volatility ({minutes_to_settlement}min to settle): using {window}m window")
-    print(f"  Volatility: {vol_std:.4f}%, Samples: {samples}")
-
-    return vol_std, window, samples
-
-
-def calculate_model_probability(btc_price, strike_price, vol_std_pct, minutes_to_settlement):
-    """
-    Calculate our model's probability that BTC stays below strike.
+    Calculate our model's probability that ETH stays below strike.
 
     Uses normal distribution assumption:
-    - Apply volatility floor to prevent overconfidence in quiet markets
     - Project volatility to time remaining
     - Calculate how many std devs the strike is above current price
     - Convert to probability using normal CDF approximation
-
-    Args:
-        btc_price: Current BTC price
-        strike_price: Strike price of the contract
-        vol_std_pct: 15-minute realized volatility (std dev as %)
-        minutes_to_settlement: Minutes until contract settles
-
-    Returns:
-        Probability (0-1) that BTC stays below strike (NO wins)
     """
     if vol_std_pct <= 0 or minutes_to_settlement <= 0:
         return None
@@ -324,25 +264,19 @@ def calculate_model_probability(btc_price, strike_price, vol_std_pct, minutes_to
         print(f"  Volatility floor applied: {vol_std_pct:.4f}% -> {vol_with_floor:.4f}%")
 
     # Scale volatility to time remaining (sqrt of time)
-    # If we have 15m vol and 25 min remaining, scale by sqrt(25/15)
     vol_scaled = vol_with_floor * math.sqrt(minutes_to_settlement / 15)
 
     # Calculate how many std devs the strike is above current price
-    price_diff_pct = (strike_price - btc_price) / btc_price * 100
+    price_diff_pct = (strike_price - eth_price) / eth_price * 100
     std_devs_above = price_diff_pct / vol_scaled if vol_scaled > 0 else 0
 
-    # Approximate normal CDF for probability BTC stays below strike
-    # P(X < strike) where X ~ N(current, vol)
-    # Using approximation: for z std devs above, P(below) ≈ norm_cdf(z)
-
-    # Simple approximation of normal CDF
+    # Approximate normal CDF for probability ETH stays below strike
     def norm_cdf(z):
         """Approximate standard normal CDF"""
         if z < -6:
             return 0.0
         if z > 6:
             return 1.0
-        # Approximation formula
         t = 1 / (1 + 0.2316419 * abs(z))
         d = 0.3989423 * math.exp(-z * z / 2)
         p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))))
@@ -350,35 +284,24 @@ def calculate_model_probability(btc_price, strike_price, vol_std_pct, minutes_to
 
     prob_below = norm_cdf(std_devs_above)
 
-    # Cap probability to prevent overconfidence
-    prob_capped = min(prob_below, MAX_MODEL_PROB)
-    if prob_below > MAX_MODEL_PROB:
-        print(f"  Probability cap applied: {prob_below*100:.1f}% -> {prob_capped*100:.1f}%")
-
     print(f"Model calculation:")
-    print(f"  Strike ${strike_price:,.2f} is {price_diff_pct:.3f}% above current ${btc_price:,.2f}")
+    print(f"  Strike ${strike_price:,.2f} is {price_diff_pct:.3f}% above current ${eth_price:,.2f}")
     print(f"  Scaled vol ({minutes_to_settlement}min): {vol_scaled:.4f}%")
     print(f"  Std devs above: {std_devs_above:.2f}")
-    print(f"  Model P(NO wins): {prob_capped*100:.1f}%")
+    print(f"  Model P(NO wins): {prob_below*100:.1f}%")
 
-    return prob_capped
+    return prob_below
 
 
-def calculate_kelly_bet(win_prob, market_no_price, bankroll, remaining_kelly_fraction=None):
+def calculate_kelly_bet(win_prob, market_no_price, bankroll, remaining_kelly_fraction):
     """
     Calculate optimal bet size using Kelly Criterion.
-
-    Kelly formula: f* = (bp - q) / b
-    where:
-        b = odds (profit / risk)
-        p = probability of winning
-        q = probability of losing
 
     Args:
         win_prob: Our model's probability NO wins (0-1)
         market_no_price: Market NO price in cents
         bankroll: Available bankroll in dollars
-        remaining_kelly_fraction: Max Kelly fraction available after other positions (optional)
+        remaining_kelly_fraction: How much of our Kelly budget is left after other positions
 
     Returns:
         dict with kelly_fraction, bet_amount, num_contracts
@@ -398,8 +321,7 @@ def calculate_kelly_bet(win_prob, market_no_price, bankroll, remaining_kelly_fra
     kelly_fraction = (b * p - q) / b if b > 0 else 0
 
     # Cap at remaining Kelly fraction (shared across BTC + ETH)
-    max_kelly = remaining_kelly_fraction if remaining_kelly_fraction is not None else MAX_KELLY_FRACTION
-    kelly_fraction = max(0, min(kelly_fraction, max_kelly))
+    kelly_fraction = max(0, min(kelly_fraction, remaining_kelly_fraction))
 
     bet_amount = bankroll * kelly_fraction
     num_contracts = int(bet_amount / (market_no_price / 100))
@@ -416,13 +338,13 @@ def calculate_kelly_bet(win_prob, market_no_price, bankroll, remaining_kelly_fra
     }
 
 
-def get_coinbase_btc_price():
+def get_coinbase_eth_price():
     """
-    Fetch current BTC price from Coinbase API.
+    Fetch current ETH price from Coinbase API.
     Returns price as float or None on error.
     """
     try:
-        url = "https://api.coinbase.com/v2/prices/BTC-USD/spot"
+        url = "https://api.coinbase.com/v2/prices/ETH-USD/spot"
         response = requests.get(url, timeout=10)
 
         if response.status_code != 200:
@@ -431,25 +353,18 @@ def get_coinbase_btc_price():
 
         data = response.json()
         price = float(data['data']['amount'])
-        print(f"Coinbase BTC price: ${price:,.2f}")
+        print(f"Coinbase ETH price: ${price:,.2f}")
         return price
 
     except Exception as e:
-        print(f"Error fetching Coinbase BTC price: {e}")
+        print(f"Error fetching Coinbase ETH price: {e}")
         return None
 
 
 def get_next_hour_event_ticker():
     """
-    Generate the Kalshi event ticker for the NEXT hour's BTC contract.
-    Format: KXBTCD-YYMONDDHH (e.g., KXBTCD-25DEC1020 for Dec 10, 2025 8pm EST)
-
-    BTC trades 24/7, so we need to handle:
-    - Hour rollover (23 -> 00)
-    - Day rollover (end of day -> next day)
-    - Month rollover (end of month -> next month)
-
-    The hour is in EST and uses 24-hour format starting from 00.
+    Generate the Kalshi event ticker for the NEXT hour's ETH contract.
+    Format: KXETHD-YYMONDDHH (e.g., KXETHD-25DEC1020 for Dec 10, 2025 8pm EST)
     """
     et_time = get_et_time()
 
@@ -461,14 +376,14 @@ def get_next_hour_event_ticker():
     day = next_hour_time.strftime('%d')
     hour = next_hour_time.strftime('%H')  # 24-hour format
 
-    event_ticker = f"{BTC_SERIES}-{year}{month}{day}{hour}"
+    event_ticker = f"{ETH_SERIES}-{year}{month}{day}{hour}"
     print(f"Next hour event ticker: {event_ticker} (settles at {hour}:00 ET)")
     return event_ticker
 
 
-def get_btc_markets(event_ticker):
+def get_eth_markets(event_ticker):
     """
-    Fetch all markets for a BTC hourly event from Kalshi.
+    Fetch all markets for an ETH hourly event from Kalshi.
     Returns list of markets sorted by strike price.
     """
     try:
@@ -505,25 +420,17 @@ def get_btc_markets(event_ticker):
         return parsed_markets
 
     except Exception as e:
-        print(f"Error fetching BTC markets: {e}")
+        print(f"Error fetching ETH markets: {e}")
         traceback.print_exc()
         return []
 
 
-def find_target_strike(markets, btc_price, min_bps=MIN_BPS_ABOVE):
+def find_target_strike(markets, eth_price, min_bps=MIN_BPS_ABOVE):
     """
-    Find the first strike that is at least min_bps basis points above current BTC price.
-
-    Args:
-        markets: List of markets sorted by strike price
-        btc_price: Current BTC price
-        min_bps: Minimum basis points above current price (default 20 = 0.20%)
-
-    Returns:
-        Market dict or None if no suitable strike found
+    Find the first strike that is at least min_bps basis points above current ETH price.
     """
-    min_strike = btc_price * (1 + min_bps / 10000)
-    print(f"Looking for first strike >= ${min_strike:,.2f} ({min_bps}bps above ${btc_price:,.2f})")
+    min_strike = eth_price * (1 + min_bps / 10000)
+    print(f"Looking for first strike >= ${min_strike:,.2f} ({min_bps}bps above ${eth_price:,.2f})")
 
     for market in markets:
         strike = market.get('floor_strike')
@@ -535,38 +442,8 @@ def find_target_strike(markets, btc_price, min_bps=MIN_BPS_ABOVE):
     return None
 
 
-def should_buy_no(market, min_price=MIN_NO_PRICE, max_price=MAX_NO_PRICE):
-    """
-    Check if we should buy NO on this market.
-
-    Returns (should_buy, no_ask_price) tuple.
-    """
-    no_ask = market.get('no_ask', 0)
-
-    if no_ask is None or no_ask == 0:
-        print(f"No NO ask available for {market['ticker']}")
-        return False, 0
-
-    print(f"NO ask: {no_ask}¢ (target range: {min_price}-{max_price}¢)")
-
-    if min_price <= no_ask <= max_price:
-        print(f"✅ NO price {no_ask}¢ is within target range")
-        return True, no_ask
-    elif no_ask < min_price:
-        print(f"❌ NO price {no_ask}¢ is below minimum {min_price}¢ - too cheap, skipping")
-        return False, no_ask
-    else:
-        print(f"❌ NO price {no_ask}¢ is above maximum {max_price}¢ - not enough margin")
-        return False, no_ask
-
-
 def log_trade(trade_data):
-    """
-    Log a trade to DynamoDB for record keeping.
-
-    Args:
-        trade_data: Dict with trade details
-    """
+    """Log a trade to DynamoDB for record keeping."""
     try:
         dynamodb = boto3.resource('dynamodb')
         table = dynamodb.Table(TRADE_LOG_TABLE)
@@ -581,7 +458,7 @@ def log_trade(trade_data):
             'quantity': trade_data.get('count', 0),
             'price_cents': trade_data.get('price_cents', 0),
             'total_cost': Decimal(str(trade_data.get('count', 0) * trade_data.get('price_cents', 0) / 100)),
-            'btc_price': Decimal(str(trade_data.get('btc_price', 0))),
+            'eth_price': Decimal(str(trade_data.get('eth_price', 0))),
             'strike_price': Decimal(str(trade_data.get('strike_price', 0))),
             'model_prob': Decimal(str(trade_data.get('model_prob', 0))),
             'market_prob': Decimal(str(trade_data.get('market_prob', 0))),
@@ -606,15 +483,6 @@ def log_trade(trade_data):
 def execute_no_trade(ticker, count, price, trade_context=None):
     """
     Execute a NO buy order on Kalshi.
-
-    Args:
-        ticker: Market ticker
-        count: Number of contracts
-        price: Price in cents
-        trade_context: Additional context for logging (btc_price, strike, etc.)
-
-    Returns:
-        Order result dict or None on error
     """
     if not KalshiClient:
         print("KalshiClient not available")
@@ -623,7 +491,7 @@ def execute_no_trade(ticker, count, price, trade_context=None):
     try:
         kalshi = KalshiClient()
 
-        print(f"Placing order: BUY {count} NO on {ticker} at {price}¢")
+        print(f"Placing order: BUY {count} NO on {ticker} at {price}c")
 
         order_result = kalshi.create_order(
             ticker=ticker,
@@ -636,7 +504,7 @@ def execute_no_trade(ticker, count, price, trade_context=None):
         order_id = order.get('order_id')
         status = order.get('status', 'unknown')
 
-        print(f"✅ Order placed! ID: {order_id}, Status: {status}")
+        print(f"Order placed! ID: {order_id}, Status: {status}")
 
         result = {
             'order_id': order_id,
@@ -652,7 +520,7 @@ def execute_no_trade(ticker, count, price, trade_context=None):
         if trade_context:
             trade_log_data = {
                 **result,
-                'btc_price': trade_context.get('btc_price'),
+                'eth_price': trade_context.get('eth_price'),
                 'strike_price': trade_context.get('strike_price'),
                 'model_prob': trade_context.get('model_prob'),
                 'market_prob': trade_context.get('market_prob'),
@@ -680,7 +548,7 @@ def execute_no_trade(ticker, count, price, trade_context=None):
                 'price_cents': price,
                 'status': 'failed',
                 'error': str(e),
-                'btc_price': trade_context.get('btc_price'),
+                'eth_price': trade_context.get('eth_price'),
                 'strike_price': trade_context.get('strike_price'),
                 'model_prob': trade_context.get('model_prob'),
                 'market_prob': trade_context.get('market_prob'),
@@ -698,13 +566,13 @@ def execute_no_trade(ticker, count, price, trade_context=None):
 
 def lambda_handler(event, context):
     """
-    Main Lambda handler - Dynamic BTC Hourly NO Strategy
+    Main Lambda handler - ETH Hourly NO Strategy
 
-    At H:25 (or when triggered), evaluates whether to trade based on:
-    1. Account balance
-    2. Current volatility
-    3. Model vs market pricing
-    4. Kelly-optimal position sizing
+    Trading windows:
+    - Early (:30-:45): 12% min edge
+    - Late (:45-:00): 4% min edge
+
+    Shares Kelly allocation with BTC bot.
     """
     try:
         print(f"Event: {json.dumps(event)}")
@@ -734,7 +602,7 @@ def lambda_handler(event, context):
 
         # Check if we're in a trading window (or force flag for testing)
         if trading_window is None and not event.get('force'):
-            print(f"⏰ Outside trading window (minute {current_minute}, need 30-59)")
+            print(f"Outside trading window (minute {current_minute}, need 30-59)")
             return {
                 'statusCode': 200,
                 'body': json.dumps({
@@ -749,14 +617,13 @@ def lambda_handler(event, context):
             trading_window = 'force'
             min_edge_pct = MIN_EDGE_PCT_LATE
 
-        print(f"✅ In {trading_window} trading window (minute {current_minute}, min edge: {min_edge_pct}%)")
+        print(f"In {trading_window} trading window (minute {current_minute}, min edge: {min_edge_pct}%)")
 
         # =========================================================================
         # Step 1: Check account balance and existing positions
         # =========================================================================
         print("\n=== Step 1: Account Balance & Position Check ===")
 
-        # Get actual account balance for Kelly sizing
         bankroll = get_account_balance()
         if bankroll is None:
             return {
@@ -804,7 +671,7 @@ def lambda_handler(event, context):
         print(f"Remaining Kelly budget: {remaining_kelly:.2%}")
 
         # =========================================================================
-        # Step 2: Get volatility data (dynamic window based on time to settlement)
+        # Step 2: Get volatility data
         # =========================================================================
         print("\n=== Step 2: Volatility Data ===")
         vol_data = get_volatility_from_dynamo()
@@ -819,101 +686,88 @@ def lambda_handler(event, context):
                 })
             }
 
-        # Get dynamic volatility based on time remaining
-        # At :45, we have 15 min to settlement, use 15m vol
-        # At :55, we have 5 min to settlement, use 5m vol
-        vol_std, vol_window, vol_samples = get_dynamic_volatility(vol_data, minutes_to_hour)
+        vol_std = vol_data.get('15m_std', 0)
+        vol_samples = vol_data.get('15m_samples', 0)
 
-        # Need at least some samples for the window we're using
-        min_samples = max(3, vol_window // 2)  # At least 3 samples or half the window
-        if vol_samples < min_samples:
-            print(f"Insufficient volatility data: {vol_samples} samples < {min_samples} required")
+        # Need at least 10 samples for reliable volatility
+        if vol_samples < 10:
+            print(f"Insufficient volatility data: {vol_samples} samples < 10 required")
             return {
                 'statusCode': 200,
                 'body': json.dumps({
                     'status': 'insufficient_vol_data',
                     'samples': vol_samples,
-                    'window': vol_window,
-                    'min_samples': min_samples,
-                    'message': f'Need at least {min_samples} samples for {vol_window}m window'
+                    'message': f'Need at least 10 samples, have {vol_samples}'
                 })
             }
 
-        # Check if volatility exceeds maximum threshold - halt trading
+        # Check if volatility exceeds maximum threshold
         if vol_std >= MAX_VOLATILITY_PCT:
-            print(f"⚠️ VOLATILITY STOP: {vol_window}m volatility {vol_std:.2f}% >= {MAX_VOLATILITY_PCT}% threshold")
+            print(f"VOLATILITY STOP: 15m volatility {vol_std:.2f}% >= {MAX_VOLATILITY_PCT}% threshold")
             return {
                 'statusCode': 200,
                 'body': json.dumps({
                     'status': 'volatility_stop',
                     'volatility': round(vol_std, 2),
-                    'window': vol_window,
                     'max_volatility': MAX_VOLATILITY_PCT,
-                    'message': f'Trading halted: {vol_window}m volatility {vol_std:.2f}% exceeds {MAX_VOLATILITY_PCT}% threshold'
+                    'message': f'Trading halted: 15m volatility {vol_std:.2f}% exceeds {MAX_VOLATILITY_PCT}% threshold'
                 })
             }
 
-        # Store 15m vol for logging (still use dynamic vol for trading)
-        vol_15m_std = vol_data.get('15m_std', vol_std)
-
         # =========================================================================
-        # Step 3: Get BTC price and target contract
+        # Step 3: Get ETH price and target contract
         # =========================================================================
-        print("\n=== Step 3: BTC Price & Contract ===")
-        btc_price = get_coinbase_btc_price()
-        if not btc_price:
+        print("\n=== Step 3: ETH Price & Contract ===")
+        eth_price = get_coinbase_eth_price()
+        if not eth_price:
             return {
                 'statusCode': 500,
-                'body': json.dumps({'error': 'Could not fetch BTC price'})
+                'body': json.dumps({'error': 'Could not fetch ETH price'})
             }
 
         event_ticker = get_next_hour_event_ticker()
-        markets = get_btc_markets(event_ticker)
+        markets = get_eth_markets(event_ticker)
         if not markets:
             return {
                 'statusCode': 200,
                 'body': json.dumps({'status': 'no_markets', 'event_ticker': event_ticker})
             }
 
-        target_market = find_target_strike(markets, btc_price)
+        target_market = find_target_strike(markets, eth_price)
         if not target_market:
             return {
                 'statusCode': 200,
                 'body': json.dumps({
                     'status': 'no_target',
-                    'btc_price': btc_price,
-                    'message': 'No strike found 20bps+ above current price'
+                    'eth_price': eth_price,
+                    'message': f'No strike found {MIN_BPS_ABOVE}bps+ above current price'
                 })
             }
 
         strike_price = target_market['floor_strike']
         market_no_price = target_market.get('no_ask', 0)
-        print(f"Strike: ${strike_price:,.2f}, NO ask: {market_no_price}¢")
+        print(f"Strike: ${strike_price:,.2f}, NO ask: {market_no_price}c")
 
         if market_no_price < MIN_NO_PRICE or market_no_price > MAX_NO_PRICE:
-            print(f"❌ NO price {market_no_price}¢ outside bounds {MIN_NO_PRICE}-{MAX_NO_PRICE}¢")
+            print(f"NO price {market_no_price}c outside bounds {MIN_NO_PRICE}-{MAX_NO_PRICE}c")
             return {
                 'statusCode': 200,
                 'body': json.dumps({
                     'status': 'price_out_of_bounds',
                     'market_no_price': market_no_price,
-                    'message': f'NO price {market_no_price}¢ outside bounds {MIN_NO_PRICE}-{MAX_NO_PRICE}¢'
+                    'message': f'NO price {market_no_price}c outside bounds {MIN_NO_PRICE}-{MAX_NO_PRICE}c'
                 })
             }
 
         # =========================================================================
-        # Step 4: Calculate model probability (using dynamic volatility)
+        # Step 4: Calculate model probability
         # =========================================================================
         print("\n=== Step 4: Model Calculation ===")
-        print(f"Using {vol_window}m volatility: {vol_std:.4f}% for {minutes_to_hour}min to settlement")
-
-        # Since we're using a dynamic window that matches time remaining,
-        # we don't need to scale the volatility - just use it directly
         model_prob = calculate_model_probability(
-            btc_price=btc_price,
+            eth_price=eth_price,
             strike_price=strike_price,
-            vol_std_pct=vol_std,  # Use dynamic volatility
-            minutes_to_settlement=vol_window  # Use the window size to avoid double-scaling
+            vol_std_pct=vol_std,
+            minutes_to_settlement=minutes_to_hour
         )
 
         if model_prob is None:
@@ -925,11 +779,11 @@ def lambda_handler(event, context):
                 })
             }
 
-        # Market's implied probability (NO price = implied prob of NO winning)
+        # Market's implied probability
         market_prob = market_no_price / 100
 
         # Calculate edge
-        edge = (model_prob - market_prob) * 100  # as percentage points
+        edge = (model_prob - market_prob) * 100
         print(f"\nEdge Analysis:")
         print(f"  Model P(NO wins): {model_prob*100:.1f}%")
         print(f"  Market P(NO wins): {market_prob*100:.1f}%")
@@ -946,7 +800,7 @@ def lambda_handler(event, context):
             hypothetical_contracts = hypothetical_kelly['num_contracts'] if hypothetical_kelly else 0
 
             # Log sliding scale analysis for data mining
-            print(f"\n=== SLIDING SCALE ANALYSIS (BTC) ===")
+            print(f"\n=== SLIDING SCALE ANALYSIS (ETH) ===")
             print(f"  Minutes to settlement: {minutes_to_hour}")
             print(f"  Current edge: {edge:.1f}%")
             print(f"  Current threshold ({trading_window}): {min_edge_pct}%")
@@ -995,7 +849,7 @@ def lambda_handler(event, context):
         print(f"  Risk: ${kelly['risk_dollars']:.2f}")
         print(f"  Potential profit: ${kelly['potential_profit']:.2f}")
 
-        # Check minimum profit percentage (risk/reward filter)
+        # Check minimum profit percentage
         profit_pct = (100 - market_no_price) / market_no_price * 100
         print(f"  Profit %: {profit_pct:.1f}%")
 
@@ -1008,7 +862,7 @@ def lambda_handler(event, context):
                     'market_no_price': market_no_price,
                     'profit_pct': round(profit_pct, 1),
                     'min_profit_required': MIN_PROFIT_PCT,
-                    'message': f'Profit {profit_pct:.1f}% below minimum {MIN_PROFIT_PCT}% (price {market_no_price}¢ too high)'
+                    'message': f'Profit {profit_pct:.1f}% below minimum {MIN_PROFIT_PCT}% (price {market_no_price}c too high)'
                 })
             }
 
@@ -1017,9 +871,8 @@ def lambda_handler(event, context):
         # =========================================================================
         print("\n=== Step 6: Execute Trade ===")
 
-        # Build trade context for logging
         trade_context = {
-            'btc_price': btc_price,
+            'eth_price': eth_price,
             'strike_price': strike_price,
             'model_prob': round(model_prob * 100, 2),
             'market_prob': round(market_prob * 100, 2),
@@ -1028,7 +881,7 @@ def lambda_handler(event, context):
             'balance_before': bankroll,
             'potential_profit': kelly['potential_profit'],
             'minutes_to_settlement': minutes_to_hour,
-            'volatility_15m': vol_15m_std,
+            'volatility_15m': vol_std,
         }
 
         order_result = execute_no_trade(
@@ -1040,13 +893,13 @@ def lambda_handler(event, context):
 
         if order_result:
             # Update position tracking
-            update_hour_position(hour_key, 'btc', kelly['kelly_fraction'])
+            update_hour_position(hour_key, 'eth', kelly['kelly_fraction'])
 
             return {
                 'statusCode': 200,
                 'body': json.dumps({
                     'status': 'success',
-                    'btc_price': btc_price,
+                    'eth_price': eth_price,
                     'strike_price': strike_price,
                     'market_no_price': market_no_price,
                     'model_prob': round(model_prob * 100, 1),
@@ -1076,6 +929,5 @@ def lambda_handler(event, context):
 
 # For local testing
 if __name__ == "__main__":
-    # Test with force flag
     result = lambda_handler({'force': True}, None)
     print(json.dumps(json.loads(result['body']), indent=2))
