@@ -149,3 +149,30 @@ class KalshiClient:
         )
         response.raise_for_status()
         return response.json()
+
+    def get_positions(self, limit: int = 200, settlement_status: str = None):
+        """
+        Get all open positions in the portfolio.
+
+        Args:
+            limit: Maximum number of positions to return (default 200)
+            settlement_status: Filter by settlement status ('settled' or 'unsettled')
+
+        Returns:
+            Dict with 'positions' key containing list of position objects
+        """
+        import requests
+        path = "/trade-api/v2/portfolio/positions"
+        headers = self._sign_request("GET", path)
+
+        params = {'limit': limit}
+        if settlement_status:
+            params['settlement_status'] = settlement_status
+
+        response = requests.get(
+            self.base_url + "/portfolio/positions",
+            headers=headers,
+            params=params
+        )
+        response.raise_for_status()
+        return response.json()

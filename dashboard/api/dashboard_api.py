@@ -11,16 +11,25 @@ Provides endpoints for the BTC/ETH Trading Dashboard:
 import json
 import boto3
 import requests
+import time
 from datetime import datetime, timedelta
 from decimal import Decimal
 import math
 
 
+# Contract discovery cache (5 minute TTL)
+_contract_cache = {}
+_contract_cache_expiry = {}
+
 # DynamoDB tables
 BTC_PRICE_TABLE = "BTCPriceHistory"
 ETH_PRICE_TABLE = "ETHPriceHistory"
+XRP_PRICE_TABLE = "XRPPriceHistory"
+SOL_PRICE_TABLE = "SOLPriceHistory"
 BTC_TRADE_TABLE = "BTCTradeLog"
 ETH_TRADE_TABLE = "ETHTradeLog"
+XRP_TRADE_TABLE = "XRPTradeLog"
+SOL_TRADE_TABLE = "SOLTradeLog"
 
 # Starting balance for IRR calculation (as of 12/18/2025)
 IRR_START_DATE = "2025-12-18"
@@ -54,31 +63,64 @@ def get_coinbase_price(asset="BTC"):
     return None
 
 
-def get_next_hour_event_ticker(asset="BTC"):
-    """Generate the Kalshi event ticker for the next hour's contract."""
-    from datetime import timezone
+def get_next_available_contract(asset="BTC"):
+    """
+    Query Kalshi API for the next available contract for an asset.
+    Returns (event_ticker, strike_date) tuple, or (None, None) if no contract found.
+    Results are cached for 5 minutes to avoid rate limits.
+    """
+    global _contract_cache, _contract_cache_expiry
 
-    # Get current time in ET
-    utc_now = datetime.now(timezone.utc)
-    # Check if DST (March - November)
-    month = utc_now.month
-    if 3 <= month <= 11:
-        et_offset = timedelta(hours=-4)  # EDT
-    else:
-        et_offset = timedelta(hours=-5)  # EST
-    et_time = utc_now + et_offset
+    series_map = {"BTC": "KXBTCD", "ETH": "KXETHD", "XRP": "KXXRPD", "SOL": "KXSOLD"}
+    series = series_map.get(asset, "KXBTCD")
 
-    # Get the NEXT hour's contract
-    next_hour_time = et_time + timedelta(hours=1)
+    # Check cache (5 minute TTL)
+    cache_key = f"contract_{asset}"
+    if cache_key in _contract_cache:
+        if time.time() < _contract_cache_expiry.get(cache_key, 0):
+            return _contract_cache[cache_key]
 
-    year = next_hour_time.strftime('%y')
-    month_str = next_hour_time.strftime('%b').upper()
-    day = next_hour_time.strftime('%d')
-    hour = next_hour_time.strftime('%H')
+    try:
+        url = "https://api.elections.kalshi.com/trade-api/v2/events"
+        params = {"series_ticker": series, "status": "open", "limit": 10}
+        response = requests.get(url, params=params, headers={'Accept': 'application/json'}, timeout=10)
 
-    # Series names: KXBTCD for BTC, KXETHD for ETH
-    series = "KXBTCD" if asset == "BTC" else "KXETHD"
-    return f"{series}-{year}{month_str}{day}{hour}"
+        if response.status_code == 200:
+            data = response.json()
+            events = data.get("events", [])
+
+            # Parse all events and find the soonest one that's still in the future
+            now = datetime.utcnow()
+            future_events = []
+
+            for event in events:
+                strike_date_str = event.get("strike_date", "")
+                if strike_date_str:
+                    # Parse ISO format: 2025-12-28T22:00:00Z
+                    strike_date = datetime.fromisoformat(strike_date_str.replace("Z", "+00:00"))
+                    strike_date_naive = strike_date.replace(tzinfo=None)
+                    if strike_date_naive > now:
+                        future_events.append({
+                            'ticker': event.get("event_ticker"),
+                            'strike_date': strike_date_naive
+                        })
+
+            # Sort by strike_date and pick the soonest
+            if future_events:
+                future_events.sort(key=lambda x: x['strike_date'])
+                soonest = future_events[0]
+                result = (soonest['ticker'], soonest['strike_date'])
+                # Cache for 5 minutes
+                _contract_cache[cache_key] = result
+                _contract_cache_expiry[cache_key] = time.time() + 300
+                print(f"Found {asset} contract: {soonest['ticker']}, settles at {soonest['strike_date']}")
+                return result
+
+        print(f"No available {asset} contracts found")
+        return (None, None)
+    except Exception as e:
+        print(f"Error fetching available {asset} contracts: {e}")
+        return (None, None)
 
 
 def get_kalshi_markets(event_ticker):
@@ -115,9 +157,103 @@ def get_kalshi_markets(event_ticker):
         return []
 
 
+def get_next_range_contract():
+    """
+    Query Kalshi API for the next available BTC range contract (KXBTC series).
+    Returns (event_ticker, strike_date) tuple, or (None, None) if no contract found.
+    Results are cached for 5 minutes.
+    """
+    global _contract_cache, _contract_cache_expiry
+
+    cache_key = "range_btc"
+    if cache_key in _contract_cache:
+        if time.time() < _contract_cache_expiry.get(cache_key, 0):
+            return _contract_cache[cache_key]
+
+    try:
+        url = "https://api.elections.kalshi.com/trade-api/v2/events"
+        params = {"series_ticker": "KXBTC", "status": "open", "limit": 10}
+        response = requests.get(url, params=params, headers={'Accept': 'application/json'}, timeout=10)
+
+        if response.status_code == 200:
+            data = response.json()
+            events = data.get("events", [])
+
+            now = datetime.utcnow()
+            future_events = []
+
+            for event in events:
+                strike_date_str = event.get("strike_date", "")
+                if strike_date_str:
+                    strike_date = datetime.fromisoformat(strike_date_str.replace("Z", "+00:00"))
+                    strike_date_naive = strike_date.replace(tzinfo=None)
+                    if strike_date_naive > now:
+                        future_events.append({
+                            'ticker': event.get("event_ticker"),
+                            'strike_date': strike_date_naive,
+                            'title': event.get("title", "")
+                        })
+
+            if future_events:
+                future_events.sort(key=lambda x: x['strike_date'])
+                soonest = future_events[0]
+                result = (soonest['ticker'], soonest['strike_date'])
+                _contract_cache[cache_key] = result
+                _contract_cache_expiry[cache_key] = time.time() + 300
+                print(f"Found BTC range contract: {soonest['ticker']}, settles at {soonest['strike_date']}")
+                return result
+
+        print("No available BTC range contracts found")
+        return (None, None)
+    except Exception as e:
+        print(f"Error fetching BTC range contracts: {e}")
+        return (None, None)
+
+
+def get_range_markets(event_ticker):
+    """Fetch all markets for a BTC range event from Kalshi."""
+    try:
+        url = f"https://api.elections.kalshi.com/trade-api/v2/events/{event_ticker}"
+        response = requests.get(url, headers={'Accept': 'application/json'}, timeout=10)
+
+        if response.status_code != 200:
+            print(f"Error fetching range markets: {response.status_code}")
+            return []
+
+        data = response.json()
+        markets = data.get('markets', [])
+
+        parsed = []
+        for market in markets:
+            floor_strike = market.get('floor_strike')
+            cap_strike = market.get('cap_strike')
+            strike_type = market.get('strike_type', 'between')
+
+            parsed.append({
+                'ticker': market.get('ticker'),
+                'floor_strike': floor_strike,
+                'cap_strike': cap_strike,
+                'strike_type': strike_type,
+                'subtitle': market.get('subtitle', ''),
+                'yes_bid': market.get('yes_bid', 0),
+                'yes_ask': market.get('yes_ask', 0),
+                'no_bid': market.get('no_bid', 0),
+                'no_ask': market.get('no_ask', 0),
+            })
+
+        # Sort by floor_strike (or cap_strike for "less" type)
+        parsed.sort(key=lambda x: x['floor_strike'] if x['floor_strike'] else (x['cap_strike'] or 0))
+        return parsed
+
+    except Exception as e:
+        print(f"Error fetching range markets: {e}")
+        return []
+
+
 def get_volatility_data(dynamodb, asset="BTC"):
     """Get latest volatility metrics from DynamoDB."""
-    table_name = BTC_PRICE_TABLE if asset == "BTC" else ETH_PRICE_TABLE
+    table_map = {"BTC": BTC_PRICE_TABLE, "ETH": ETH_PRICE_TABLE, "XRP": XRP_PRICE_TABLE, "SOL": SOL_PRICE_TABLE}
+    table_name = table_map.get(asset, BTC_PRICE_TABLE)
     table = dynamodb.Table(table_name)
 
     try:
@@ -168,7 +304,8 @@ def get_volatility_data(dynamodb, asset="BTC"):
 
 def get_price_history(dynamodb, asset="BTC", minutes=60):
     """Get price history from the last N minutes."""
-    table_name = BTC_PRICE_TABLE if asset == "BTC" else ETH_PRICE_TABLE
+    table_map = {"BTC": BTC_PRICE_TABLE, "ETH": ETH_PRICE_TABLE, "XRP": XRP_PRICE_TABLE, "SOL": SOL_PRICE_TABLE}
+    table_name = table_map.get(asset, BTC_PRICE_TABLE)
     table = dynamodb.Table(table_name)
 
     now = datetime.utcnow()
@@ -219,7 +356,8 @@ def get_price_history(dynamodb, asset="BTC", minutes=60):
 
 def get_recent_trades(dynamodb, asset="BTC", limit=50):
     """Get recent trades from the trade log with settlement/P&L data."""
-    table_name = BTC_TRADE_TABLE if asset == "BTC" else ETH_TRADE_TABLE
+    table_map = {"BTC": BTC_TRADE_TABLE, "ETH": ETH_TRADE_TABLE, "XRP": XRP_TRADE_TABLE, "SOL": SOL_TRADE_TABLE}
+    table_name = table_map.get(asset, BTC_TRADE_TABLE)
     table = dynamodb.Table(table_name)
 
     try:
@@ -300,7 +438,7 @@ def get_recent_trades(dynamodb, asset="BTC", limit=50):
                 'kelly_fraction': float(item.get('kelly_fraction', 0)),
                 'status': item.get('status', 'unknown'),
                 'order_id': item.get('order_id'),
-                'asset_price': float(item.get('btc_price', item.get('eth_price', 0))),
+                'asset_price': float(item.get('btc_price', item.get('eth_price', item.get('xrp_price', item.get('sol_price', 0))))),
                 'asset': asset,
                 'settled': settled or settlement_price is not None,
                 'won': won,
@@ -325,7 +463,7 @@ def get_all_trades_for_irr(dynamodb):
     """Get all trades since IRR_START_DATE for IRR calculation."""
     all_trades = []
 
-    for asset, table_name in [("BTC", BTC_TRADE_TABLE), ("ETH", ETH_TRADE_TABLE)]:
+    for asset, table_name in [("BTC", BTC_TRADE_TABLE), ("ETH", ETH_TRADE_TABLE), ("XRP", XRP_TRADE_TABLE), ("SOL", SOL_TRADE_TABLE)]:
         try:
             table = dynamodb.Table(table_name)
 
@@ -466,12 +604,18 @@ def normal_cdf(x):
     return 0.5 * (1.0 + sign * y)
 
 
-def calculate_strikes(asset_price, volatility, minutes_to_settlement=15, asset="BTC"):
+def calculate_strikes(asset_price, volatility, minutes_to_settlement=15, asset="BTC", event_ticker=None):
     """Calculate available strikes with edge calculations using real Kalshi data."""
     strikes = []
 
     # Get real market data from Kalshi
-    event_ticker = get_next_hour_event_ticker(asset)
+    if event_ticker is None:
+        event_ticker, _ = get_next_available_contract(asset)
+
+    if not event_ticker:
+        print(f"No available contract for {asset}")
+        return []
+
     kalshi_markets = get_kalshi_markets(event_ticker)
 
     # Create a lookup by strike price
@@ -540,6 +684,126 @@ def calculate_strikes(asset_price, volatility, minutes_to_settlement=15, asset="
     return strikes[:10]
 
 
+def calculate_range_strikes(btc_price, volatility, minutes_to_settlement=60):
+    """
+    Calculate probabilities and edges for BTC range contracts (NO bets).
+
+    Strategy: Buy NO when price is BELOW the floor of a range.
+    NO wins if price ends up OUTSIDE the range (below floor OR above cap).
+    Fair NO = 1 - P(in range) = P(below floor) + P(above cap)
+
+    Distance shows how far current price is from the floor (the barrier to enter).
+    Negative distance = price is below floor (good for NO bet).
+
+    Returns list of ranges with fair NO prices, market asks, and edges.
+    """
+    ranges = []
+
+    # Get next available range contract
+    range_ticker, range_settle = get_next_range_contract()
+    if not range_ticker:
+        print("No range contract available")
+        return []
+
+    # Get market data
+    range_markets = get_range_markets(range_ticker)
+    if not range_markets:
+        print("No range markets available")
+        return []
+
+    # Scale volatility to remaining time
+    hours_to_settle = minutes_to_settlement / 60
+
+    # BTC typically has 2-4% daily volatility. Use minimum floor.
+    min_15m_vol = 0.10  # Minimum 0.10% per 15 minutes
+
+    if volatility > 0:
+        effective_15m_vol = max(volatility, min_15m_vol)
+        vol_hourly = effective_15m_vol * 2  # 15m to 1h: sqrt(4) = 2
+        vol_scaled = vol_hourly * math.sqrt(hours_to_settle)
+    else:
+        vol_daily = 3.0
+        vol_scaled = vol_daily * math.sqrt(hours_to_settle / 24)
+
+    # Ensure minimum scaled vol for reasonable probability distribution
+    vol_scaled = max(vol_scaled, 0.15)
+
+    print(f"Range contract: {range_ticker}, {minutes_to_settlement:.0f}min to settle, vol={vol_scaled:.2f}%")
+
+    for market in range_markets:
+        floor_strike = market.get('floor_strike')
+        cap_strike = market.get('cap_strike')
+        strike_type = market.get('strike_type', 'between')
+
+        # Only process "between" ranges for NO strategy
+        # (buying NO when price is below the floor)
+        if strike_type != 'between':
+            continue
+
+        if not floor_strike or not cap_strike:
+            continue
+
+        # Calculate fair YES probability: P(floor <= price < cap)
+        floor_dist = (floor_strike / btc_price - 1) * 100
+        cap_dist = (cap_strike / btc_price - 1) * 100
+
+        z_floor = floor_dist / vol_scaled if vol_scaled > 0 else 0
+        z_cap = cap_dist / vol_scaled if vol_scaled > 0 else 0
+
+        # P(floor <= X < cap) = CDF(cap) - CDF(floor)
+        fair_yes = normal_cdf(z_cap) - normal_cdf(z_floor)
+
+        # Fair NO = 1 - Fair YES (probability price ends OUTSIDE the range)
+        fair_no = 1 - fair_yes
+        fair_no_cents = round(fair_no * 100)
+
+        # Get NO ask price from market
+        no_ask = market.get('no_ask', 0) or 0
+
+        # Edge: fair NO - NO ask (positive = good bet)
+        edge = fair_no_cents - no_ask if no_ask > 0 else 0
+
+        # Kelly calculation for NO bet
+        kelly_fraction = 0
+        kelly_bet = 0
+        if edge > 0 and no_ask > 0 and no_ask < 100:
+            win_prob = fair_no
+            profit_if_win = 100 - no_ask
+            loss_if_lose = no_ask
+            odds = profit_if_win / loss_if_lose if loss_if_lose > 0 else 0
+            kelly_fraction = (odds * win_prob - (1 - win_prob)) / odds if odds > 0 else 0
+            kelly_fraction = max(0, min(kelly_fraction, 0.15))  # Cap at 15% for ranges
+            kelly_bet = round(100 * kelly_fraction, 2)
+
+        # Distance from current price to floor (the barrier)
+        # Negative = price is below floor (good for NO)
+        # Positive = price is above floor (inside or above range)
+        distance_to_floor_pct = (btc_price / floor_strike - 1) * 100
+
+        # Create range label
+        range_label = f"${floor_strike:,.0f} - ${cap_strike:,.0f}"
+
+        ranges.append({
+            'range': range_label,
+            'ticker': market.get('ticker'),
+            'floor': floor_strike,
+            'cap': cap_strike,
+            'type': strike_type,
+            'distance_pct': round(distance_to_floor_pct, 2),  # Distance to floor
+            'fair_no': fair_no_cents,
+            'no_ask': no_ask,
+            'edge': edge,
+            'kelly_fraction': round(kelly_fraction * 100, 1),
+            'kelly_bet': kelly_bet
+        })
+
+    # Sort by floor price (ascending) to show ranges from low to high
+    ranges.sort(key=lambda x: x['floor'])
+
+    # Return all ranges (typically 15-20)
+    return ranges
+
+
 def lambda_handler(event, context):
     """Main Lambda handler."""
     print(f"Event: {json.dumps(event)}")
@@ -585,9 +849,11 @@ def lambda_handler(event, context):
             }
 
         elif path == '/volatility' or path == '/dashboard/volatility':
-            # Get volatility metrics for both assets
+            # Get volatility metrics for all assets
             btc_vol = get_volatility_data(dynamodb, "BTC")
             eth_vol = get_volatility_data(dynamodb, "ETH")
+            xrp_vol = get_volatility_data(dynamodb, "XRP")
+            sol_vol = get_volatility_data(dynamodb, "SOL")
 
             return {
                 'statusCode': 200,
@@ -595,17 +861,21 @@ def lambda_handler(event, context):
                 'body': json.dumps({
                     'btc_volatility': btc_vol,
                     'eth_volatility': eth_vol,
+                    'xrp_volatility': xrp_vol,
+                    'sol_volatility': sol_vol,
                     'timestamp': datetime.utcnow().isoformat()
                 }, cls=DecimalEncoder)
             }
 
         elif path == '/trades' or path == '/dashboard/trades':
-            # Get recent trades for both assets
+            # Get recent trades for all assets
             btc_trades = get_recent_trades(dynamodb, "BTC")
             eth_trades = get_recent_trades(dynamodb, "ETH")
+            xrp_trades = get_recent_trades(dynamodb, "XRP")
+            sol_trades = get_recent_trades(dynamodb, "SOL")
 
             # Combine and sort by timestamp
-            all_trades = btc_trades + eth_trades
+            all_trades = btc_trades + eth_trades + xrp_trades + sol_trades
             all_trades.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
 
             # Get IRR stats
@@ -623,19 +893,39 @@ def lambda_handler(event, context):
             }
 
         elif path == '/strikes' or path == '/dashboard/strikes':
-            # Get strikes with edge calculations for both assets
+            # Get strikes with edge calculations for all assets
             btc_price = get_coinbase_price("BTC")
             eth_price = get_coinbase_price("ETH")
+            xrp_price = get_coinbase_price("XRP")
+            sol_price = get_coinbase_price("SOL")
             btc_vol = get_volatility_data(dynamodb, "BTC")
             eth_vol = get_volatility_data(dynamodb, "ETH")
+            xrp_vol = get_volatility_data(dynamodb, "XRP")
+            sol_vol = get_volatility_data(dynamodb, "SOL")
+
+            # Get available contracts dynamically
+            btc_ticker, btc_settle = get_next_available_contract("BTC")
+            eth_ticker, eth_settle = get_next_available_contract("ETH")
+            xrp_ticker, xrp_settle = get_next_available_contract("XRP")
+            sol_ticker, sol_settle = get_next_available_contract("SOL")
 
             now = datetime.utcnow()
-            mins_to_settle = 60 - now.minute
+
+            # Calculate minutes to settlement from contract data (use BTC as reference)
+            if btc_settle:
+                mins_to_settle = int((btc_settle - now).total_seconds() / 60)
+            else:
+                mins_to_settle = 60 - now.minute  # Fallback
 
             btc_vol_15m = btc_vol['15m']['std'] if btc_vol else 0.1
             eth_vol_15m = eth_vol['15m']['std'] if eth_vol else 0.1
-            btc_strikes = calculate_strikes(btc_price, btc_vol_15m, mins_to_settle, "BTC")
-            eth_strikes = calculate_strikes(eth_price, eth_vol_15m, mins_to_settle, "ETH")
+            xrp_vol_15m = xrp_vol['15m']['std'] if xrp_vol else 0.1
+            sol_vol_15m = sol_vol['15m']['std'] if sol_vol else 0.1
+
+            btc_strikes = calculate_strikes(btc_price, btc_vol_15m, mins_to_settle, "BTC", btc_ticker) if btc_ticker else []
+            eth_strikes = calculate_strikes(eth_price, eth_vol_15m, mins_to_settle, "ETH", eth_ticker) if eth_ticker else []
+            xrp_strikes = calculate_strikes(xrp_price, xrp_vol_15m, mins_to_settle, "XRP", xrp_ticker) if xrp_ticker and xrp_price else []
+            sol_strikes = calculate_strikes(sol_price, sol_vol_15m, mins_to_settle, "SOL", sol_ticker) if sol_ticker and sol_price else []
 
             return {
                 'statusCode': 200,
@@ -643,11 +933,17 @@ def lambda_handler(event, context):
                 'body': json.dumps({
                     'btc_price': btc_price,
                     'eth_price': eth_price,
+                    'xrp_price': xrp_price,
+                    'sol_price': sol_price,
                     'btc_volatility_15m': btc_vol_15m,
                     'eth_volatility_15m': eth_vol_15m,
+                    'xrp_volatility_15m': xrp_vol_15m,
+                    'sol_volatility_15m': sol_vol_15m,
                     'minutes_to_settlement': mins_to_settle,
                     'btc_strikes': btc_strikes,
                     'eth_strikes': eth_strikes,
+                    'xrp_strikes': xrp_strikes,
+                    'sol_strikes': sol_strikes,
                     'timestamp': datetime.utcnow().isoformat()
                 }, cls=DecimalEncoder)
             }
@@ -656,28 +952,75 @@ def lambda_handler(event, context):
             # Get all data in one call
             btc_price = get_coinbase_price("BTC")
             eth_price = get_coinbase_price("ETH")
+            xrp_price = get_coinbase_price("XRP")
+            sol_price = get_coinbase_price("SOL")
             btc_vol = get_volatility_data(dynamodb, "BTC")
             eth_vol = get_volatility_data(dynamodb, "ETH")
+            xrp_vol = get_volatility_data(dynamodb, "XRP")
+            sol_vol = get_volatility_data(dynamodb, "SOL")
             btc_history = get_price_history(dynamodb, "BTC", minutes=60)
             btc_trades = get_recent_trades(dynamodb, "BTC")
             eth_trades = get_recent_trades(dynamodb, "ETH")
+            xrp_trades = get_recent_trades(dynamodb, "XRP")
+            sol_trades = get_recent_trades(dynamodb, "SOL")
 
             # Combine trades and sort by timestamp
-            all_trades = btc_trades + eth_trades
+            all_trades = btc_trades + eth_trades + xrp_trades + sol_trades
             all_trades.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
 
             # Get IRR stats
             irr_trades = get_all_trades_for_irr(dynamodb)
             irr_stats = calculate_irr_stats(irr_trades)
 
-            # Calculate minutes to settlement
+            # Get available contracts dynamically
+            btc_ticker, btc_settle = get_next_available_contract("BTC")
+            eth_ticker, eth_settle = get_next_available_contract("ETH")
+            xrp_ticker, xrp_settle = get_next_available_contract("XRP")
+            sol_ticker, sol_settle = get_next_available_contract("SOL")
+
             now = datetime.utcnow()
-            mins_to_settle = 60 - now.minute
+
+            # Calculate minutes to settlement from contract data (use BTC as reference)
+            if btc_settle:
+                mins_to_settle = int((btc_settle - now).total_seconds() / 60)
+            else:
+                mins_to_settle = 60 - now.minute  # Fallback
+
+            # Convert settlement times to EST for display
+            def utc_to_est_str(utc_dt):
+                if not utc_dt:
+                    return None
+                # EST is UTC-5
+                est_dt = utc_dt - timedelta(hours=5)
+                hour = est_dt.hour
+                am_pm = "AM" if hour < 12 else "PM"
+                hour_12 = hour % 12 or 12
+                return f"{hour_12}{am_pm} EST"
+
+            btc_settle_est = utc_to_est_str(btc_settle)
+            eth_settle_est = utc_to_est_str(eth_settle)
+            xrp_settle_est = utc_to_est_str(xrp_settle)
+            sol_settle_est = utc_to_est_str(sol_settle)
 
             btc_vol_15m = btc_vol['15m']['std'] if btc_vol else 0.1
             eth_vol_15m = eth_vol['15m']['std'] if eth_vol else 0.1
-            btc_strikes = calculate_strikes(btc_price, btc_vol_15m, mins_to_settle, "BTC")
-            eth_strikes = calculate_strikes(eth_price, eth_vol_15m, mins_to_settle, "ETH")
+            xrp_vol_15m = xrp_vol['15m']['std'] if xrp_vol else 0.1
+            sol_vol_15m = sol_vol['15m']['std'] if sol_vol else 0.1
+
+            btc_strikes = calculate_strikes(btc_price, btc_vol_15m, mins_to_settle, "BTC", btc_ticker) if btc_ticker else []
+            eth_strikes = calculate_strikes(eth_price, eth_vol_15m, mins_to_settle, "ETH", eth_ticker) if eth_ticker else []
+            xrp_strikes = calculate_strikes(xrp_price, xrp_vol_15m, mins_to_settle, "XRP", xrp_ticker) if xrp_ticker and xrp_price else []
+            sol_strikes = calculate_strikes(sol_price, sol_vol_15m, mins_to_settle, "SOL", sol_ticker) if sol_ticker and sol_price else []
+
+            # Get BTC range contracts
+            range_ticker, range_settle = get_next_range_contract()
+            range_mins_to_settle = 0
+            range_settle_est = None
+            btc_ranges = []
+            if range_ticker and range_settle and btc_price:
+                range_mins_to_settle = int((range_settle - now).total_seconds() / 60)
+                range_settle_est = utc_to_est_str(range_settle)
+                btc_ranges = calculate_range_strikes(btc_price, btc_vol_15m, range_mins_to_settle)
 
             return {
                 'statusCode': 200,
@@ -685,16 +1028,29 @@ def lambda_handler(event, context):
                 'body': json.dumps({
                     'btc_price': btc_price,
                     'eth_price': eth_price,
+                    'xrp_price': xrp_price,
+                    'sol_price': sol_price,
                     'price_history': btc_history,
                     'volatility': btc_vol,  # Keep for backward compatibility
                     'btc_volatility': btc_vol,
                     'eth_volatility': eth_vol,
+                    'xrp_volatility': xrp_vol,
+                    'sol_volatility': sol_vol,
                     'strikes': btc_strikes,  # Keep for backward compatibility
                     'btc_strikes': btc_strikes,
                     'eth_strikes': eth_strikes,
+                    'xrp_strikes': xrp_strikes,
+                    'sol_strikes': sol_strikes,
                     'trades': all_trades[:30],
                     'irr_stats': irr_stats,
                     'minutes_to_settlement': mins_to_settle,
+                    'btc_settle_time': btc_settle_est,
+                    'eth_settle_time': eth_settle_est,
+                    'xrp_settle_time': xrp_settle_est,
+                    'sol_settle_time': sol_settle_est,
+                    'btc_ranges': btc_ranges,
+                    'range_settle_time': range_settle_est,
+                    'range_mins_to_settle': range_mins_to_settle,
                     'trading_active': btc_vol_15m < 11.0,
                     'timestamp': datetime.utcnow().isoformat()
                 }, cls=DecimalEncoder)

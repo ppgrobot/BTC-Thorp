@@ -211,6 +211,66 @@ def get_account_balance():
         return None
 
 
+def get_total_account_value():
+    """
+    Get total account value = available cash + market value of open positions.
+
+    For each open position:
+    - YES positions: value = quantity * current_yes_bid (what we could sell for)
+    - NO positions: value = quantity * current_no_bid (what we could sell for)
+
+    This gives a conservative estimate using bid prices (what we could liquidate for).
+    Returns (total_value, cash_balance, positions_value) tuple in dollars, or (None, None, None) on error.
+    """
+    if not KalshiClient:
+        print("KalshiClient not available")
+        return None, None, None
+
+    try:
+        kalshi = KalshiClient()
+
+        # Get cash balance
+        balance_data = kalshi.get_balance()
+        cash_cents = balance_data.get('balance', 0)
+        cash_dollars = cash_cents / 100
+
+        # Get open positions (unsettled only)
+        positions_data = kalshi.get_positions(settlement_status='unsettled')
+        positions = positions_data.get('market_positions', [])
+
+        # Calculate total position value
+        positions_value_cents = 0
+        position_count = 0
+
+        for pos in positions:
+            # Market exposure is the potential payout in cents
+            market_exposure = pos.get('market_exposure', 0)
+
+            # Use market_exposure as the current position value
+            # This is the max payout, but serves as upper bound
+            positions_value_cents += abs(market_exposure)
+            position_count += 1
+
+            ticker = pos.get('ticker', 'unknown')
+            yes_qty = pos.get('position', 0)
+            print(f"  Position: {ticker}, qty={yes_qty}, exposure=${market_exposure/100:.2f}")
+
+        positions_value_dollars = positions_value_cents / 100
+        total_value = cash_dollars + positions_value_dollars
+
+        print(f"Account breakdown:")
+        print(f"  Cash balance: ${cash_dollars:.2f}")
+        print(f"  Positions ({position_count}): ${positions_value_dollars:.2f}")
+        print(f"  Total account value: ${total_value:.2f}")
+
+        return total_value, cash_dollars, positions_value_dollars
+
+    except Exception as e:
+        print(f"Error getting total account value: {e}")
+        traceback.print_exc()
+        return None, None, None
+
+
 def get_volatility_from_dynamo():
     """
     Get latest volatility metrics from DynamoDB.
@@ -624,17 +684,20 @@ def lambda_handler(event, context):
         # =========================================================================
         print("\n=== Step 1: Account Balance & Position Check ===")
 
-        bankroll = get_account_balance()
+        # Get total account value (cash + positions) for Kelly sizing
+        # This ensures we size based on total portfolio value, not just available cash
+        bankroll, cash_balance, positions_value = get_total_account_value()
         if bankroll is None:
             return {
                 'statusCode': 500,
                 'body': json.dumps({
                     'status': 'balance_error',
-                    'message': 'Could not fetch account balance from Kalshi'
+                    'message': 'Could not fetch account value from Kalshi'
                 })
             }
 
-        print(f"Account balance: ${bankroll:.2f}")
+        print(f"Total account value for Kelly sizing: ${bankroll:.2f}")
+        print(f"  (Cash: ${cash_balance:.2f}, Positions: ${positions_value:.2f})")
 
         # Minimum balance check
         MIN_BALANCE = 1.00

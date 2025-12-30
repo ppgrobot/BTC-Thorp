@@ -472,6 +472,58 @@
             color: #627eea;
         }
 
+        .asset-badge.xrp {
+            background: rgba(0, 168, 234, 0.2);
+            color: #00a8ea;
+        }
+
+        .asset-badge.sol {
+            background: rgba(153, 69, 255, 0.2);
+            color: #9945ff;
+        }
+
+        /* XRP section styling */
+        .xrp-section h2 {
+            color: #00a8ea;
+        }
+
+        .xrp-section th {
+            background: rgba(0, 168, 234, 0.15);
+            color: #00a8ea;
+        }
+
+        .xrp-section tr:hover {
+            background: rgba(0, 168, 234, 0.05);
+        }
+
+        /* SOL section styling */
+        .sol-section h2 {
+            color: #9945ff;
+        }
+
+        .sol-section th {
+            background: rgba(153, 69, 255, 0.15);
+            color: #9945ff;
+        }
+
+        .sol-section tr:hover {
+            background: rgba(153, 69, 255, 0.05);
+        }
+
+        /* Range section styling */
+        .range-section h2 {
+            color: #f7931a;
+        }
+
+        .range-section th {
+            background: rgba(247, 147, 26, 0.15);
+            color: #f7931a;
+        }
+
+        .range-section tr:hover {
+            background: rgba(247, 147, 26, 0.05);
+        }
+
         .pnl-positive { color: #4caf50; font-weight: 600; }
         .pnl-negative { color: #f44336; font-weight: 600; }
         .pnl-pending { color: #ff9800; }
@@ -495,6 +547,14 @@
             <div class="info-card">
                 <div class="label">ETH/USD</div>
                 <div class="value blue" id="ethPrice">--</div>
+            </div>
+            <div class="info-card">
+                <div class="label">XRP/USD</div>
+                <div class="value" id="xrpPrice" style="color: #00a8ea;">--</div>
+            </div>
+            <div class="info-card">
+                <div class="label">SOL/USD</div>
+                <div class="value" id="solPrice" style="color: #9945ff;">--</div>
             </div>
             <div class="info-card">
                 <div class="label">Time to Settle</div>
@@ -534,7 +594,7 @@
             <div class="left-column">
                 <!-- BTC Contracts -->
                 <div class="section-card">
-                    <h2>BTC Contracts <span class="badge green">HOURLY</span></h2>
+                    <h2>BTC Contracts <span id="btcSettleInfo" class="badge green">--</span></h2>
                     <div class="table-wrapper">
                         <table id="btcStrikesTable">
                             <thead>
@@ -556,7 +616,7 @@
 
                 <!-- ETH Contracts -->
                 <div class="section-card eth-section">
-                    <h2>ETH Contracts <span class="badge blue">HOURLY</span></h2>
+                    <h2>ETH Contracts <span id="ethSettleInfo" class="badge blue">--</span></h2>
                     <div class="table-wrapper">
                         <table id="ethStrikesTable">
                             <thead>
@@ -570,6 +630,72 @@
                                 </tr>
                             </thead>
                             <tbody id="ethStrikesBody">
+                                <tr><td colspan="6" class="status">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- XRP Contracts -->
+                <div class="section-card xrp-section">
+                    <h2>XRP Contracts <span id="xrpSettleInfo" class="badge" style="background: rgba(0, 168, 234, 0.3); color: #00a8ea;">--</span></h2>
+                    <div class="table-wrapper">
+                        <table id="xrpStrikesTable">
+                            <thead>
+                                <tr>
+                                    <th>Strike</th>
+                                    <th>Dist</th>
+                                    <th>Fair</th>
+                                    <th>Ask</th>
+                                    <th>Edge</th>
+                                    <th>Bet</th>
+                                </tr>
+                            </thead>
+                            <tbody id="xrpStrikesBody">
+                                <tr><td colspan="6" class="status">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- SOL Contracts -->
+                <div class="section-card sol-section">
+                    <h2>SOL Contracts <span id="solSettleInfo" class="badge" style="background: rgba(153, 69, 255, 0.3); color: #9945ff;">--</span></h2>
+                    <div class="table-wrapper">
+                        <table id="solStrikesTable">
+                            <thead>
+                                <tr>
+                                    <th>Strike</th>
+                                    <th>Dist</th>
+                                    <th>Fair</th>
+                                    <th>Ask</th>
+                                    <th>Edge</th>
+                                    <th>Bet</th>
+                                </tr>
+                            </thead>
+                            <tbody id="solStrikesBody">
+                                <tr><td colspan="6" class="status">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- BTC Range Contracts (NO bets) -->
+                <div class="section-card range-section">
+                    <h2>BTC Range NO Bets <span id="rangeSettleInfo" class="badge" style="background: rgba(247, 147, 26, 0.3); color: #f7931a;">--</span></h2>
+                    <div class="table-wrapper">
+                        <table id="rangeStrikesTable">
+                            <thead>
+                                <tr>
+                                    <th>Range</th>
+                                    <th>To Floor</th>
+                                    <th>Fair NO</th>
+                                    <th>NO Ask</th>
+                                    <th>Edge</th>
+                                    <th>Bet</th>
+                                </tr>
+                            </thead>
+                            <tbody id="rangeStrikesBody">
                                 <tr><td colspan="6" class="status">Loading...</td></tr>
                             </tbody>
                         </table>
@@ -638,7 +764,7 @@
                 <!-- Trading Status -->
                 <div class="section-card">
                     <h2>Trading Status</h2>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; text-align: center;">
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center; margin-bottom: 10px;">
                         <div>
                             <div style="color: #888; font-size: 0.65rem; text-transform: uppercase; margin-bottom: 4px;">BTC Vol</div>
                             <div id="btcVol" style="font-size: 0.95rem; font-weight: bold; color: #4caf50;">--</div>
@@ -646,6 +772,16 @@
                         <div>
                             <div style="color: #888; font-size: 0.65rem; text-transform: uppercase; margin-bottom: 4px;">ETH Vol</div>
                             <div id="ethVol" style="font-size: 0.95rem; font-weight: bold; color: #4caf50;">--</div>
+                        </div>
+                        <div>
+                            <div style="color: #888; font-size: 0.65rem; text-transform: uppercase; margin-bottom: 4px;">XRP Vol</div>
+                            <div id="xrpVol" style="font-size: 0.95rem; font-weight: bold; color: #4caf50;">--</div>
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center;">
+                        <div>
+                            <div style="color: #888; font-size: 0.65rem; text-transform: uppercase; margin-bottom: 4px;">SOL Vol</div>
+                            <div id="solVol" style="font-size: 0.95rem; font-weight: bold; color: #4caf50;">--</div>
                         </div>
                         <div>
                             <div style="color: #888; font-size: 0.65rem; text-transform: uppercase; margin-bottom: 4px;">Status</div>
@@ -840,10 +976,54 @@
                     '$' + Math.round(data.eth_price).toLocaleString();
             }
 
+            // Update XRP price
+            if (data.xrp_price) {
+                document.getElementById('xrpPrice').textContent =
+                    '$' + data.xrp_price.toFixed(4);
+            }
+
+            // Update SOL price
+            if (data.sol_price) {
+                document.getElementById('solPrice').textContent =
+                    '$' + data.sol_price.toFixed(2);
+            }
+
             // Update minutes to settlement
             if (data.minutes_to_settlement !== undefined) {
                 document.getElementById('minsToSettle').textContent =
                     data.minutes_to_settlement + ' min';
+            }
+
+            // Update contract section headers with price and settlement time
+            const formatPrice = (price, asset) => {
+                if (!price) return '--';
+                if (asset === 'XRP') return '$' + price.toFixed(4);
+                if (asset === 'SOL' || asset === 'ETH') return '$' + price.toFixed(2);
+                return '$' + Math.round(price).toLocaleString();
+            };
+
+            if (data.btc_settle_time) {
+                document.getElementById('btcSettleInfo').textContent =
+                    formatPrice(data.btc_price, 'BTC') + ' | ' + data.btc_settle_time;
+            }
+            if (data.eth_settle_time) {
+                document.getElementById('ethSettleInfo').textContent =
+                    formatPrice(data.eth_price, 'ETH') + ' | ' + data.eth_settle_time;
+            }
+            if (data.xrp_settle_time) {
+                document.getElementById('xrpSettleInfo').textContent =
+                    formatPrice(data.xrp_price, 'XRP') + ' | ' + data.xrp_settle_time;
+            }
+            if (data.sol_settle_time) {
+                document.getElementById('solSettleInfo').textContent =
+                    formatPrice(data.sol_price, 'SOL') + ' | ' + data.sol_settle_time;
+            }
+            if (data.range_settle_time) {
+                const rangeHours = Math.floor(data.range_mins_to_settle / 60);
+                const rangeMins = data.range_mins_to_settle % 60;
+                const timeToSettle = rangeHours > 0 ? `${rangeHours}h ${rangeMins}m` : `${rangeMins}m`;
+                document.getElementById('rangeSettleInfo').textContent =
+                    timeToSettle + ' | ' + data.range_settle_time;
             }
 
             // Update volatility for both assets
@@ -890,6 +1070,22 @@
                 const ethVol15m = ethVol['15m']?.std || 0;
                 document.getElementById('ethVol').textContent = ethVol15m.toFixed(2) + '%';
                 document.getElementById('ethVol').style.color = ethVol15m >= 10 ? '#f44336' : '#4caf50';
+            }
+
+            // Update XRP volatility
+            const xrpVol = data.xrp_volatility;
+            if (xrpVol) {
+                const xrpVol15m = xrpVol['15m']?.std || 0;
+                document.getElementById('xrpVol').textContent = xrpVol15m.toFixed(2) + '%';
+                document.getElementById('xrpVol').style.color = xrpVol15m >= 15 ? '#f44336' : '#4caf50';
+            }
+
+            // Update SOL volatility
+            const solVol = data.sol_volatility;
+            if (solVol) {
+                const solVol15m = solVol['15m']?.std || 0;
+                document.getElementById('solVol').textContent = solVol15m.toFixed(2) + '%';
+                document.getElementById('solVol').style.color = solVol15m >= 15 ? '#f44336' : '#4caf50';
             }
 
             // Update vol display
@@ -1033,6 +1229,84 @@
                             <td class="positive">${s.fair_no_price}¢</td>
                             <td>${s.no_ask > 0 ? s.no_ask + '¢' : '--'}</td>
                             <td class="${edgeClass}">${s.no_ask > 0 ? edgeDisplay : '--'}</td>
+                            <td>${adjustedBet > 0.01 ? '$' + adjustedBet.toFixed(0) : '--'}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+
+            // Update XRP strikes
+            const xrpStrikes = cachedData?.xrp_strikes || [];
+            const xrpTbody = document.getElementById('xrpStrikesBody');
+
+            if (xrpStrikes.length === 0) {
+                xrpTbody.innerHTML = '<tr><td colspan="6" class="status">No XRP strikes available</td></tr>';
+            } else {
+                xrpTbody.innerHTML = xrpStrikes.map(s => {
+                    const adjustedBet = (s.kelly_bet || 0) * kellyFrac * (bankroll / 100);
+                    const edgeClass = s.edge > 0 ? 'positive' : (s.edge < 0 ? 'negative' : '');
+                    const edgeDisplay = s.edge > 0 ? '+' + s.edge : s.edge;
+
+                    return `
+                        <tr>
+                            <td>$${s.strike.toFixed(4)}</td>
+                            <td>${s.distance_bps}bp</td>
+                            <td class="positive">${s.fair_no_price}¢</td>
+                            <td>${s.no_ask > 0 ? s.no_ask + '¢' : '--'}</td>
+                            <td class="${edgeClass}">${s.no_ask > 0 ? edgeDisplay : '--'}</td>
+                            <td>${adjustedBet > 0.01 ? '$' + adjustedBet.toFixed(0) : '--'}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+
+            // Update SOL strikes
+            const solStrikes = cachedData?.sol_strikes || [];
+            const solTbody = document.getElementById('solStrikesBody');
+
+            if (solStrikes.length === 0) {
+                solTbody.innerHTML = '<tr><td colspan="6" class="status">No SOL strikes available</td></tr>';
+            } else {
+                solTbody.innerHTML = solStrikes.map(s => {
+                    const adjustedBet = (s.kelly_bet || 0) * kellyFrac * (bankroll / 100);
+                    const edgeClass = s.edge > 0 ? 'positive' : (s.edge < 0 ? 'negative' : '');
+                    const edgeDisplay = s.edge > 0 ? '+' + s.edge : s.edge;
+
+                    return `
+                        <tr>
+                            <td>$${s.strike.toFixed(2)}</td>
+                            <td>${s.distance_bps}bp</td>
+                            <td class="positive">${s.fair_no_price}¢</td>
+                            <td>${s.no_ask > 0 ? s.no_ask + '¢' : '--'}</td>
+                            <td class="${edgeClass}">${s.no_ask > 0 ? edgeDisplay : '--'}</td>
+                            <td>${adjustedBet > 0.01 ? '$' + adjustedBet.toFixed(0) : '--'}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+
+            // Update BTC Range contracts (NO bets)
+            const btcRanges = cachedData?.btc_ranges || [];
+            const rangeTbody = document.getElementById('rangeStrikesBody');
+
+            if (btcRanges.length === 0) {
+                rangeTbody.innerHTML = '<tr><td colspan="6" class="status">No range contracts available</td></tr>';
+            } else {
+                rangeTbody.innerHTML = btcRanges.map(r => {
+                    const adjustedBet = (r.kelly_bet || 0) * kellyFrac * (bankroll / 100);
+                    const edgeClass = r.edge > 0 ? 'positive' : (r.edge < 0 ? 'negative' : '');
+                    const edgeDisplay = r.edge > 0 ? '+' + r.edge : r.edge;
+                    // Distance to floor: negative = below floor (good for NO bet)
+                    const distDisplay = r.distance_pct >= 0 ? '+' + r.distance_pct.toFixed(1) + '%' : r.distance_pct.toFixed(1) + '%';
+                    const distClass = r.distance_pct < 0 ? 'positive' : '';  // Green if below floor
+
+                    return `
+                        <tr>
+                            <td style="font-size: 0.75rem;">${r.range}</td>
+                            <td class="${distClass}">${distDisplay}</td>
+                            <td class="positive">${r.fair_no}¢</td>
+                            <td>${r.no_ask > 0 ? r.no_ask + '¢' : '--'}</td>
+                            <td class="${edgeClass}">${r.no_ask > 0 ? edgeDisplay : '--'}</td>
                             <td>${adjustedBet > 0.01 ? '$' + adjustedBet.toFixed(0) : '--'}</td>
                         </tr>
                     `;
